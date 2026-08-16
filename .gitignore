@@ -30,3 +30,12 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Harper binary and run-mode session logs
+/harper
+*.jsonl
+
+# Design/planning docs and source reference material kept local only, not in the repo
+/spec.md
+/v1tasks.md
+/info.txt
