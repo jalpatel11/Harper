@@ -81,9 +81,9 @@ func TestDefault_DockerConfigHasSafeNetworkDefault(t *testing.T) {
 }
 
 func TestDefault_HasResourceLimits(t *testing.T) {
-	// spec.md's safety model explicitly relies on resource limits ("nothing
-	// else stops a runaway command" given there are no confirmation
-	// prompts) — an empty default here would silently mean no limit at all.
+	// An empty default here would silently mean no limit at all, and
+	// nothing else stops a runaway command since there's no confirmation
+	// prompt before a tool call.
 	cfg := Default()
 	if cfg.Docker.Memory == "" {
 		t.Fatalf("expected a non-empty default memory limit")

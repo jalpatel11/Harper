@@ -26,8 +26,6 @@ type RunFlags struct {
 	MaxTurns    int
 }
 
-// applyModelOverrides applies -model/-effort to both brain and subtask
-// roles. Empty values leave the loaded config untouched.
 func applyModelOverrides(cfg config.Config, model, effort string) config.Config {
 	if model != "" {
 		cfg.Brain.Model = model
@@ -40,9 +38,7 @@ func applyModelOverrides(cfg config.Config, model, effort string) config.Config 
 	return cfg
 }
 
-// resolveSandboxMode applies --sandbox > config's sandbox_mode > "local",
-// so a config-file-only sandbox choice isn't silently overridden by a flag
-// default the user never actually passed.
+// resolveSandboxMode applies --sandbox > config's sandbox_mode > "local".
 func resolveSandboxMode(flagValue, configValue string) string {
 	if flagValue != "" {
 		return flagValue
@@ -61,9 +57,6 @@ func parseRunFlags(args []string) (RunFlags, error) {
 	instruction := args[0]
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	workDir := fs.String("workdir", ".", "working directory")
-	// Sandbox defaults to "" (not "docker") so main() can tell "flag not
-	// passed" apart from "explicitly passed docker" and fall back to the
-	// loaded config's sandbox_mode instead of always overriding it.
 	sandbox := fs.String("sandbox", "", "sandbox mode: local or docker (default: the config file's sandbox_mode, or local)")
 	maxTurns := fs.Int("max-turns", 40, "maximum agent turns before aborting")
 	logPath := fs.String("log", "", "path to write the JSONL session log (default: stderr)")
@@ -205,9 +198,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Default path: interactive REPL. Its own small flag set exists so a
-	// custom harper.yaml (a different Ollama model, later a real Anthropic
-	// config) can be selected here too, not only for `harper run`.
+	// Default path: interactive REPL.
 	replFlags := flag.NewFlagSet("harper", flag.ContinueOnError)
 	configPath := replFlags.String("config", "", "path to the harper config file")
 	model := replFlags.String("model", "", "model name for both brain and subtask roles (overrides config)")
