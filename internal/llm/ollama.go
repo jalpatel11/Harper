@@ -6,7 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
+
+// defaultRequestTimeout bounds a single completion call so an unresponsive
+// or hung Ollama server can't block Harper indefinitely. Generous, since
+// large local models can legitimately take a long time per turn.
+const defaultRequestTimeout = 5 * time.Minute
 
 type OllamaProvider struct {
 	baseURL string
@@ -17,7 +23,13 @@ type OllamaProvider struct {
 }
 
 func NewOllamaProvider(baseURL, model string, numCtx int, effort string) *OllamaProvider {
-	return &OllamaProvider{baseURL: baseURL, model: model, numCtx: numCtx, effort: effort, client: http.DefaultClient}
+	return &OllamaProvider{
+		baseURL: baseURL,
+		model:   model,
+		numCtx:  numCtx,
+		effort:  effort,
+		client:  &http.Client{Timeout: defaultRequestTimeout},
+	}
 }
 
 type ollamaFunction struct {

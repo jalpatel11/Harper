@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestOllamaProvider_Complete_TextResponse(t *testing.T) {
@@ -188,5 +189,32 @@ func TestOllamaProvider_Complete_OmitsThinkFieldWhenEffortUnset(t *testing.T) {
 
 	if _, present := capturedRequest["think"]; present {
 		t.Fatalf("expected no think field in the outgoing request, got: %v", capturedRequest["think"])
+	}
+}
+
+func TestNewOllamaProvider_SetsClientTimeout(t *testing.T) {
+	p := NewOllamaProvider("http://localhost:11434", "model", 16384, "")
+	if p.client.Timeout <= 0 {
+		t.Fatalf("expected a non-zero HTTP client timeout by default, got %v", p.client.Timeout)
+	}
+}
+
+func TestOllamaProvider_Complete_TimesOutOnSlowServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "too slow"},
+			"done":    true,
+		})
+	}))
+	defer srv.Close()
+
+	// Constructed directly (not via NewOllamaProvider) so the test can use a
+	// tiny timeout instead of waiting out the real default.
+	p := &OllamaProvider{baseURL: srv.URL, model: "x", numCtx: 1024, client: &http.Client{Timeout: 10 * time.Millisecond}}
+	_, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+	if err == nil {
+		t.Fatalf("expected a timeout error from the slow server")
 	}
 }
