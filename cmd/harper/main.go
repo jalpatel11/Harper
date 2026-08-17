@@ -40,7 +40,7 @@ func applyModelOverrides(cfg config.Config, model, effort string) config.Config 
 	return cfg
 }
 
-// resolveSandboxMode applies --sandbox > config's sandbox_mode > "docker",
+// resolveSandboxMode applies --sandbox > config's sandbox_mode > "local",
 // so a config-file-only sandbox choice isn't silently overridden by a flag
 // default the user never actually passed.
 func resolveSandboxMode(flagValue, configValue string) string {
@@ -50,7 +50,7 @@ func resolveSandboxMode(flagValue, configValue string) string {
 	if configValue != "" {
 		return configValue
 	}
-	return "docker"
+	return "local"
 }
 
 func parseRunFlags(args []string) (RunFlags, error) {
@@ -64,7 +64,7 @@ func parseRunFlags(args []string) (RunFlags, error) {
 	// Sandbox defaults to "" (not "docker") so main() can tell "flag not
 	// passed" apart from "explicitly passed docker" and fall back to the
 	// loaded config's sandbox_mode instead of always overriding it.
-	sandbox := fs.String("sandbox", "", "sandbox mode: docker or local (default: the config file's sandbox_mode, or docker)")
+	sandbox := fs.String("sandbox", "", "sandbox mode: local or docker (default: the config file's sandbox_mode, or local)")
 	maxTurns := fs.Int("max-turns", 40, "maximum agent turns before aborting")
 	logPath := fs.String("log", "", "path to write the JSONL session log (default: stderr)")
 	configPath := fs.String("config", "", "path to the harper config file")

@@ -93,9 +93,9 @@ func TestResolveSandboxMode_FallsBackToConfigWhenFlagUnset(t *testing.T) {
 	}
 }
 
-func TestResolveSandboxMode_FallsBackToDockerWhenBothUnset(t *testing.T) {
-	if got := resolveSandboxMode("", ""); got != "docker" {
-		t.Fatalf("expected the hardcoded 'docker' fallback, got %q", got)
+func TestResolveSandboxMode_FallsBackToLocalWhenBothUnset(t *testing.T) {
+	if got := resolveSandboxMode("", ""); got != "local" {
+		t.Fatalf("expected the hardcoded 'local' fallback, got %q", got)
 	}
 }
 

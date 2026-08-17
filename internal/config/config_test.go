@@ -21,6 +21,9 @@ ollama:
   base_url: http://localhost:11434
   num_ctx: 32768
 sandbox_mode: docker
+# sandbox_mode is deliberately still "docker" here — this test is checking
+# that an explicit, non-default value round-trips correctly through Load,
+# not asserting what the default is (see TestDefault_UsesLocalSandboxByDefault).
 docker:
   image: harper/sandbox:latest
   network: none
@@ -51,18 +54,29 @@ mcp_servers:
 	if cfg.Ollama.NumCtx != 32768 {
 		t.Fatalf("unexpected num_ctx: %d", cfg.Ollama.NumCtx)
 	}
+	if cfg.SandboxMode != "docker" {
+		t.Fatalf("expected the explicit sandbox_mode: docker to round-trip, got %q", cfg.SandboxMode)
+	}
 	if len(cfg.MCPServers) != 1 || cfg.MCPServers[0].Name != "fs" {
 		t.Fatalf("unexpected mcp servers: %v", cfg.MCPServers)
 	}
 }
 
-func TestDefault_HasSafeNetworkDefault(t *testing.T) {
+func TestDefault_UsesLocalSandboxByDefault(t *testing.T) {
+	// No sandbox in the default path, no startup cost from a container.
+	// Docker is opt-in (--sandbox=docker) for untrusted projects.
+	cfg := Default()
+	if cfg.SandboxMode != "local" {
+		t.Fatalf("expected default sandbox mode 'local', got %q", cfg.SandboxMode)
+	}
+}
+
+func TestDefault_DockerConfigHasSafeNetworkDefault(t *testing.T) {
+	// Even though docker mode is opt-in now, its own defaults must still be
+	// the safe ones for when it is chosen.
 	cfg := Default()
 	if cfg.Docker.Network != "none" {
 		t.Fatalf("expected default network mode 'none', got %q", cfg.Docker.Network)
-	}
-	if cfg.SandboxMode != "docker" {
-		t.Fatalf("expected default sandbox mode 'docker', got %q", cfg.SandboxMode)
 	}
 }
 

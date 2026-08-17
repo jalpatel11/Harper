@@ -48,10 +48,12 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		Brain:       ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
-		Subtask:     ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
-		Ollama:      OllamaConfig{BaseURL: "http://localhost:11434", NumCtx: 16384},
-		SandboxMode: "docker",
+		Brain:   ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
+		Subtask: ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
+		Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", NumCtx: 16384},
+		// No sandbox in the default path, so there's no container-startup
+		// cost — Docker is opt-in (--sandbox=docker) for untrusted projects.
+		SandboxMode: "local",
 		Docker: DockerConfig{
 			Image:   "harper/sandbox:latest",
 			Network: "none",
