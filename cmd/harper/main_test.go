@@ -33,13 +33,26 @@ func TestParseRunFlags_OverridesAllFields(t *testing.T) {
 		"--max-turns", "10",
 		"--log", "session.jsonl",
 		"--config", "harper.yaml",
+		"--model", "gpt-oss:20b",
+		"--effort", "high",
 	})
 	if err != nil {
 		t.Fatalf("parseRunFlags: %v", err)
 	}
 	if flags.WorkDir != "/workspace" || flags.Sandbox != "local" || flags.MaxTurns != 10 ||
-		flags.LogPath != "session.jsonl" || flags.ConfigPath != "harper.yaml" {
+		flags.LogPath != "session.jsonl" || flags.ConfigPath != "harper.yaml" ||
+		flags.Model != "gpt-oss:20b" || flags.Effort != "high" {
 		t.Fatalf("unexpected flags: %+v", flags)
+	}
+}
+
+func TestParseRunFlags_ModelAndEffortDefaultEmpty(t *testing.T) {
+	flags, err := parseRunFlags([]string{"do the thing"})
+	if err != nil {
+		t.Fatalf("parseRunFlags: %v", err)
+	}
+	if flags.Model != "" || flags.Effort != "" {
+		t.Fatalf("expected empty Model/Effort by default, got %+v", flags)
 	}
 }
 
@@ -83,5 +96,27 @@ func TestResolveSandboxMode_FallsBackToConfigWhenFlagUnset(t *testing.T) {
 func TestResolveSandboxMode_FallsBackToDockerWhenBothUnset(t *testing.T) {
 	if got := resolveSandboxMode("", ""); got != "docker" {
 		t.Fatalf("expected the hardcoded 'docker' fallback, got %q", got)
+	}
+}
+
+func TestApplyModelOverrides_OverridesBothBrainAndSubtask(t *testing.T) {
+	cfg := config.Default()
+	cfg = applyModelOverrides(cfg, "gpt-oss:20b", "high")
+
+	if cfg.Brain.Model != "gpt-oss:20b" || cfg.Subtask.Model != "gpt-oss:20b" {
+		t.Fatalf("expected both roles' Model overridden, got brain=%q subtask=%q", cfg.Brain.Model, cfg.Subtask.Model)
+	}
+	if cfg.Brain.Effort != "high" || cfg.Subtask.Effort != "high" {
+		t.Fatalf("expected both roles' Effort overridden, got brain=%q subtask=%q", cfg.Brain.Effort, cfg.Subtask.Effort)
+	}
+}
+
+func TestApplyModelOverrides_LeavesConfigUntouchedWhenEmpty(t *testing.T) {
+	cfg := config.Default()
+	originalBrain, originalSubtask := cfg.Brain, cfg.Subtask
+	cfg = applyModelOverrides(cfg, "", "")
+
+	if cfg.Brain != originalBrain || cfg.Subtask != originalSubtask {
+		t.Fatalf("expected brain/subtask config unchanged when model/effort flags are empty, got brain=%+v subtask=%+v", cfg.Brain, cfg.Subtask)
 	}
 }

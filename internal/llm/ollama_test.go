@@ -35,7 +35,7 @@ func TestOllamaProvider_Complete_TextResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewOllamaProvider(srv.URL, "qwen3-coder:30b", 16384)
+	p := NewOllamaProvider(srv.URL, "qwen3-coder:30b", 16384, "")
 	resp, err := p.Complete(context.Background(), []Message{
 		{Role: RoleUser, Content: "hi"},
 	}, nil)
@@ -71,7 +71,7 @@ func TestOllamaProvider_Complete_ToolCallResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewOllamaProvider(srv.URL, "qwen3-coder:30b", 16384)
+	p := NewOllamaProvider(srv.URL, "qwen3-coder:30b", 16384, "")
 	resp, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "read foo.txt"}}, []ToolDef{
 		{Name: "read", Description: "Read a file", Parameters: map[string]any{"type": "object"}},
 	})
@@ -106,7 +106,7 @@ func TestOllamaProvider_Complete_RoundTripsPriorToolCallInHistory(t *testing.T) 
 	}))
 	defer srv.Close()
 
-	p := NewOllamaProvider(srv.URL, "qwen3-coder:30b", 16384)
+	p := NewOllamaProvider(srv.URL, "qwen3-coder:30b", 16384, "")
 
 	// Simulate what Loop.Run passes on a second turn: a history where an
 	// earlier assistant message already called a tool, followed by that
@@ -140,5 +140,53 @@ func TestOllamaProvider_Complete_RoundTripsPriorToolCallInHistory(t *testing.T) 
 	toolCalls, ok := assistantMsg["tool_calls"].([]any)
 	if !ok || len(toolCalls) != 1 {
 		t.Fatalf("expected the assistant's prior tool call to round-trip in the outgoing request, got: %v", assistantMsg["tool_calls"])
+	}
+}
+
+func TestOllamaProvider_Complete_SendsThinkFieldWhenEffortSet(t *testing.T) {
+	var capturedRequest map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&capturedRequest)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "ok"},
+			"done":    true,
+		})
+	}))
+	defer srv.Close()
+
+	p := NewOllamaProvider(srv.URL, "gpt-oss:20b", 16384, "high")
+	_, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	if capturedRequest["think"] != "high" {
+		t.Fatalf("expected think=%q in the outgoing request, got: %v", "high", capturedRequest["think"])
+	}
+}
+
+func TestOllamaProvider_Complete_OmitsThinkFieldWhenEffortUnset(t *testing.T) {
+	var capturedRequest map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&capturedRequest)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "ok"},
+			"done":    true,
+		})
+	}))
+	defer srv.Close()
+
+	p := NewOllamaProvider(srv.URL, "qwen3-coder:30b", 16384, "")
+	_, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	if _, present := capturedRequest["think"]; present {
+		t.Fatalf("expected no think field in the outgoing request, got: %v", capturedRequest["think"])
 	}
 }

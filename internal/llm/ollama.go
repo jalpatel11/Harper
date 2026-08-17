@@ -12,11 +12,12 @@ type OllamaProvider struct {
 	baseURL string
 	model   string
 	numCtx  int
+	effort  string // "", "low", "medium", or "high" — maps to Ollama's "think" field
 	client  *http.Client
 }
 
-func NewOllamaProvider(baseURL, model string, numCtx int) *OllamaProvider {
-	return &OllamaProvider{baseURL: baseURL, model: model, numCtx: numCtx, client: http.DefaultClient}
+func NewOllamaProvider(baseURL, model string, numCtx int, effort string) *OllamaProvider {
+	return &OllamaProvider{baseURL: baseURL, model: model, numCtx: numCtx, effort: effort, client: http.DefaultClient}
 }
 
 type ollamaFunction struct {
@@ -49,6 +50,7 @@ type ollamaChatRequest struct {
 	Tools    []ollamaTool    `json:"tools,omitempty"`
 	Stream   bool            `json:"stream"`
 	Options  map[string]any  `json:"options,omitempty"`
+	Think    string          `json:"think,omitempty"`
 }
 
 type ollamaChatResponse struct {
@@ -63,6 +65,7 @@ func (p *OllamaProvider) Complete(ctx context.Context, messages []Message, tools
 		Model:   p.model,
 		Stream:  false,
 		Options: map[string]any{"num_ctx": p.numCtx},
+		Think:   p.effort,
 	}
 	for _, m := range messages {
 		om := ollamaMessage{Role: string(m.Role), Content: m.Content}

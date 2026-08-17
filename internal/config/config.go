@@ -10,6 +10,13 @@ import (
 type ModelConfig struct {
 	Provider string `yaml:"provider"`
 	Model    string `yaml:"model"`
+	// Effort is a provider-neutral reasoning-effort hint ("low", "medium",
+	// "high", or "" for the provider's default). Each Provider
+	// implementation decides what it means: OllamaProvider maps it to
+	// Ollama's native "think" field; a future AnthropicProvider would map
+	// it to an extended-thinking budget. The CLI/config surface doesn't
+	// change when a new provider is added.
+	Effort string `yaml:"effort"`
 }
 
 type OllamaConfig struct {

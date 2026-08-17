@@ -13,6 +13,7 @@ func TestLoad_ParsesFullConfig(t *testing.T) {
 brain:
   provider: ollama
   model: qwen3-coder:30b
+  effort: high
 subtask:
   provider: ollama
   model: qwen3-coder:30b
@@ -40,6 +41,12 @@ mcp_servers:
 	}
 	if cfg.Brain.Model != "qwen3-coder:30b" {
 		t.Fatalf("unexpected brain model: %q", cfg.Brain.Model)
+	}
+	if cfg.Brain.Effort != "high" {
+		t.Fatalf("unexpected brain effort: %q", cfg.Brain.Effort)
+	}
+	if cfg.Subtask.Effort != "" {
+		t.Fatalf("expected subtask effort to default empty, got %q", cfg.Subtask.Effort)
 	}
 	if cfg.Ollama.NumCtx != 32768 {
 		t.Fatalf("unexpected num_ctx: %d", cfg.Ollama.NumCtx)
