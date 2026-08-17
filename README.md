@@ -16,7 +16,15 @@ Harper is a terminal-based coding agent. It runs an agent loop where a configura
 
 Requires a running [Ollama](https://ollama.com) server with a model that supports native tool calling (e.g. `qwen3-coder`, `gpt-oss`).
 
-**Download a pre-built binary** from the [latest release](https://github.com/jalpatel11/Harper/releases/latest):
+**Install script** (macOS/Linux):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/jalpatel11/Harper/main/install.sh | sh
+```
+
+Detects your OS/architecture, downloads the matching release binary, verifies its checksum, and installs it to `/usr/local/bin` (override with `INSTALL_DIR=...`). Pin a specific version with `HARPER_VERSION=v0.1.0`.
+
+**Or download a pre-built binary manually** from the [latest release](https://github.com/jalpatel11/Harper/releases/latest):
 
 | Platform | Download |
 |---|---|
