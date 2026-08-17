@@ -123,6 +123,12 @@ mcp_servers:
 | `--model` | Model name for both brain and subtask roles | config's models |
 | `--effort` | Reasoning effort for both roles (`low`/`medium`/`high`) | config's effort, or provider default |
 
+**Version:**
+
+```bash
+./harper version
+```
+
 ## Development
 
 ```bash

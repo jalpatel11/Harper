@@ -13,6 +13,7 @@ import (
 	"harper/internal/logging"
 	"harper/internal/mcp"
 	"harper/internal/tools"
+	"harper/internal/version"
 )
 
 type RunFlags struct {
@@ -155,6 +156,11 @@ func buildBrainLoop(ctx context.Context, cfg config.Config, exec executor.Execut
 
 func main() {
 	ctx := context.Background()
+
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Println("harper " + version.Version)
+		os.Exit(0)
+	}
 
 	if len(os.Args) > 1 && os.Args[1] == "run" {
 		flags, err := parseRunFlags(os.Args[2:])
