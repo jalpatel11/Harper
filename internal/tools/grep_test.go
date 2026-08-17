@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGrepTool_FindsMatchingLines(t *testing.T) {
@@ -27,5 +28,21 @@ func TestGrepTool_FindsMatchingLines(t *testing.T) {
 	}
 	if strings.Contains(out, "Bar") {
 		t.Fatalf("did not expect a Bar match, got: %q", out)
+	}
+}
+
+func TestGrepTool_NotesTruncationWhenMaxEntriesExceeded(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 10; i++ {
+		os.WriteFile(filepath.Join(dir, string(rune('a'+i))+".txt"), []byte("match\n"), 0o644)
+	}
+
+	tool := &GrepTool{maxEntries: 3, timeout: time.Minute}
+	out, err := tool.Execute(context.Background(), map[string]any{"pattern": "match", "path": dir})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(out, "truncated") {
+		t.Fatalf("expected a truncation notice in output, got: %q", out)
 	}
 }

@@ -6,11 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
-type GlobTool struct{}
+type GlobTool struct {
+	maxEntries int
+	timeout    time.Duration
+}
 
-func NewGlobTool() *GlobTool { return &GlobTool{} }
+func NewGlobTool() *GlobTool { return &GlobTool{maxEntries: maxWalkEntries, timeout: walkTimeout} }
 
 func (t *GlobTool) Name() string        { return "Glob" }
 func (t *GlobTool) Description() string { return "Find files recursively matching a glob pattern." }
@@ -33,7 +37,7 @@ func (t *GlobTool) Execute(ctx context.Context, input map[string]any) (string, e
 	}
 
 	var matches []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	truncated, err := boundedWalk(ctx, root, t.maxEntries, t.timeout, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
@@ -47,5 +51,9 @@ func (t *GlobTool) Execute(ctx context.Context, input map[string]any) (string, e
 		return "", fmt.Errorf("glob: walk %s: %w", root, err)
 	}
 
-	return strings.Join(matches, "\n"), nil
+	out := strings.Join(matches, "\n")
+	if truncated {
+		out += fmt.Sprintf("\n... (truncated: search stopped after %d entries or %s, results may be incomplete — narrow the path)", t.maxEntries, t.timeout)
+	}
+	return out, nil
 }

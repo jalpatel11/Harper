@@ -5,14 +5,17 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
-type GrepTool struct{}
+type GrepTool struct {
+	maxEntries int
+	timeout    time.Duration
+}
 
-func NewGrepTool() *GrepTool { return &GrepTool{} }
+func NewGrepTool() *GrepTool { return &GrepTool{maxEntries: maxWalkEntries, timeout: walkTimeout} }
 
 func (t *GrepTool) Name() string        { return "Grep" }
 func (t *GrepTool) Description() string { return "Search file contents recursively for a regex pattern." }
@@ -39,7 +42,7 @@ func (t *GrepTool) Execute(ctx context.Context, input map[string]any) (string, e
 	}
 
 	var matches []string
-	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	truncated, err := boundedWalk(ctx, root, t.maxEntries, t.timeout, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
@@ -64,5 +67,9 @@ func (t *GrepTool) Execute(ctx context.Context, input map[string]any) (string, e
 		return "", fmt.Errorf("grep: walk %s: %w", root, err)
 	}
 
-	return strings.Join(matches, "\n"), nil
+	out := strings.Join(matches, "\n")
+	if truncated {
+		out += fmt.Sprintf("\n... (truncated: search stopped after %d entries or %s, results may be incomplete — narrow the path)", t.maxEntries, t.timeout)
+	}
+	return out, nil
 }

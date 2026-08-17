@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGlobTool_FindsMatchingFiles(t *testing.T) {
@@ -28,5 +29,21 @@ func TestGlobTool_FindsMatchingFiles(t *testing.T) {
 	}
 	if strings.Contains(out, "a.txt") {
 		t.Fatalf("did not expect a.txt in output, got: %q", out)
+	}
+}
+
+func TestGlobTool_NotesTruncationWhenMaxEntriesExceeded(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 10; i++ {
+		os.WriteFile(filepath.Join(dir, string(rune('a'+i))+".go"), []byte(""), 0o644)
+	}
+
+	tool := &GlobTool{maxEntries: 3, timeout: time.Minute}
+	out, err := tool.Execute(context.Background(), map[string]any{"pattern": "*.go", "path": dir})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(out, "truncated") {
+		t.Fatalf("expected a truncation notice in output, got: %q", out)
 	}
 }
