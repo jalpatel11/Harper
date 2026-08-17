@@ -35,7 +35,13 @@ go.work.sum
 /harper
 *.jsonl
 
+# Local config — user-specific model/provider settings, not meant to be shared
+/harper.yaml
+
 # Design/planning docs and source reference material kept local only, not in the repo
 /spec.md
 /v1tasks.md
 /info.txt
+
+# macOS
+.DS_Store
