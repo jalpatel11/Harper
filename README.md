@@ -14,7 +14,26 @@ Harper is a terminal-based coding agent. It runs an agent loop where a configura
 
 ## Installation
 
-Requires Go 1.23+ and a running [Ollama](https://ollama.com) server with a model that supports native tool calling (e.g. `qwen3-coder`, `gpt-oss`).
+Requires a running [Ollama](https://ollama.com) server with a model that supports native tool calling (e.g. `qwen3-coder`, `gpt-oss`).
+
+**Download a pre-built binary** from the [latest release](https://github.com/jalpatel11/Harper/releases/latest):
+
+| Platform | Download |
+|---|---|
+| macOS (Apple Silicon) | `harper_v0.1.0_darwin_arm64.tar.gz` |
+| macOS (Intel) | `harper_v0.1.0_darwin_amd64.tar.gz` |
+| Linux (arm64) | `harper_v0.1.0_linux_arm64.tar.gz` |
+| Linux (amd64) | `harper_v0.1.0_linux_amd64.tar.gz` |
+
+```bash
+tar -xzf harper_v0.1.0_<platform>.tar.gz
+cd harper_v0.1.0_<platform>
+./harper version
+```
+
+Checksums are in `SHA256SUMS.txt` on the same release page.
+
+**Or build from source** (requires Go 1.23+):
 
 ```bash
 git clone git@github.com:jalpatel11/Harper.git
