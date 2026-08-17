@@ -2,8 +2,6 @@
 
 Harper is a terminal-based coding agent, in the same space as Claude Code, Codex, and pi. It runs an agent loop where a configurable **brain** model drives the conversation and tool use, and a configurable **subtask** model handles delegated, token-heavy work — both provider-agnostic, so the same code runs against local models (e.g. Ollama) or hosted ones without a rewrite.
 
-> **Status: under construction.** Harper is not yet runnable end to end — there is no CLI entrypoint or agent loop wired up yet. See [Current status](#current-status) below for what's implemented so far.
-
 ## Design goals
 
 - A tool-calling agent loop: read a request, call the brain model with tools, execute tool calls, loop to a final answer.
@@ -15,13 +13,27 @@ Harper is a terminal-based coding agent, in the same space as Claude Code, Codex
 
 ## Current status
 
-Implemented so far:
+Harper builds and runs end to end. The full loop — Ollama-backed brain/subtask models, all six core tools (`Read`/`Write`/`Edit`/`Grep`/`Glob`/`Bash`), `Delegate`, MCP tool merging, Docker or local sandboxing, an interactive REPL, and a non-interactive `run` mode with JSONL session logging — is implemented and covered by tests.
 
-- **`internal/llm`** — provider-agnostic message/tool types and an `OllamaProvider` implementation, including correct multi-turn tool-call history round-tripping.
-- **`internal/config`** — YAML config loading with safe defaults (sandboxed-by-default network policy, non-zero container resource limits).
-- **`internal/executor`** — the `Executor` interface and a `LocalExecutor` implementation for running shell commands directly.
+Not yet built: an `AnthropicProvider` (config validates the field but only `"ollama"` is implemented), the network domain-allowlist (v1 ships a coarser `--network none`/`bridge` toggle), and the separate `harper-terminal-bench` adapter for running Harper inside an external eval harness.
 
-Not yet built: the Docker-backed executor, the built-in tool set (file read/write/edit/grep/glob), the agent loop itself, delegation, MCP integration, and any CLI entrypoint. There is nothing to run yet.
+## Usage
+
+Requires a running Ollama server with a model that supports native tool calling.
+
+Interactive REPL:
+
+```bash
+./harper
+```
+
+Non-interactive, single instruction:
+
+```bash
+./harper run "<instruction>" --workdir /path/to/project --sandbox local --max-turns 40 --log session.jsonl
+```
+
+Both read a config file via `--config path/to/harper.yaml` (optional; sane defaults are built in). Config controls the brain/subtask model and provider, Ollama connection settings, sandbox mode and Docker options, and any MCP servers to connect to.
 
 ## Development
 
@@ -33,4 +45,10 @@ go test ./...
 go vet ./...
 ```
 
-Each package's tests are self-contained and don't require any external services to run.
+Each package's tests are self-contained and don't require any external services to run — except `internal/executor`'s `DockerExecutor` tests, which skip cleanly if Docker isn't installed or the daemon isn't reachable.
+
+Build the binary with:
+
+```bash
+go build -o harper ./cmd/harper
+```
