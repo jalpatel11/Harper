@@ -22,10 +22,10 @@ func NewDelegateTool(subtaskProvider llm.Provider, subtaskTools []tools.Tool, su
 
 func (t *DelegateTool) Name() string { return "Delegate" }
 func (t *DelegateTool) Description() string {
-	return "Hand off a self-contained, tedious, or token-heavy task to the subtask model. " +
-		"Use it early for multi-step investigation, tracing, or analysis that would otherwise " +
-		"take many of your own turns — don't grind through that kind of work yourself and " +
-		"delegate only as a last resort; delegate as soon as you recognize the shape. Returns its final answer."
+	return "Hand off task work to the subtask model — this is the primary way work should get " +
+		"done, not a last resort for special cases. Use it for investigation, tracing, coding, " +
+		"debugging, and fixes; keep your own turns for breaking the request down and reviewing " +
+		"results. Returns its final answer."
 }
 func (t *DelegateTool) InputSchema() map[string]any {
 	return map[string]any{
