@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"harper/internal/llm"
 	"harper/internal/tools"
@@ -24,9 +25,9 @@ type stubTool struct {
 	result string
 }
 
-func (t *stubTool) Name() string                 { return t.name }
-func (t *stubTool) Description() string          { return "stub" }
-func (t *stubTool) InputSchema() map[string]any   { return map[string]any{"type": "object"} }
+func (t *stubTool) Name() string                { return t.name }
+func (t *stubTool) Description() string         { return "stub" }
+func (t *stubTool) InputSchema() map[string]any { return map[string]any{"type": "object"} }
 func (t *stubTool) Execute(ctx context.Context, input map[string]any) (string, error) {
 	return t.result, nil
 }
@@ -78,6 +79,74 @@ func TestLoop_Run_ExecutesToolThenReturnsFinalText(t *testing.T) {
 	}
 	if !foundToolResult {
 		t.Fatalf("expected a tool-result message with content %q linked to call_0", "hi")
+	}
+}
+
+type slowTool struct {
+	name   string
+	result string
+	delay  time.Duration
+}
+
+func (t *slowTool) Name() string                { return t.name }
+func (t *slowTool) Description() string         { return "stub" }
+func (t *slowTool) InputSchema() map[string]any { return map[string]any{"type": "object"} }
+func (t *slowTool) Execute(ctx context.Context, input map[string]any) (string, error) {
+	time.Sleep(t.delay)
+	return t.result, nil
+}
+
+func TestLoop_Run_ExecutesMultipleToolCallsInOneTurnConcurrently(t *testing.T) {
+	const delay = 100 * time.Millisecond
+	provider := &scriptedProvider{
+		responses: []llm.Response{
+			{Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+				{ID: "call_0", Name: "SlowA", Args: nil},
+				{ID: "call_1", Name: "SlowB", Args: nil},
+			}}},
+			{Message: llm.Message{Role: llm.RoleAssistant, Content: "both done"}},
+		},
+	}
+	toolset := []tools.Tool{
+		&slowTool{name: "SlowA", result: "a done", delay: delay},
+		&slowTool{name: "SlowB", result: "b done", delay: delay},
+	}
+
+	loop := NewLoop(provider, toolset, "you are a test agent")
+	start := time.Now()
+	history, err := loop.Run(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "run both"}}, 10, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// If the two tool calls ran sequentially, this would take ~2*delay.
+	// Running concurrently, it should take much closer to a single delay.
+	if elapsed >= 2*delay {
+		t.Fatalf("expected concurrent execution (~%v), took %v", delay, elapsed)
+	}
+
+	results := map[string]string{}
+	for _, m := range history {
+		if m.Role == llm.RoleTool {
+			results[m.ToolCallID] = m.Content
+		}
+	}
+	if results["call_0"] != "a done" || results["call_1"] != "b done" {
+		t.Fatalf("expected each tool result correctly matched to its call ID, got: %v", results)
+	}
+
+	// Results must still land in history in the original call order, even
+	// though execution was concurrent — callers (loggers, REPL output)
+	// depend on deterministic ordering.
+	var toolOrder []string
+	for _, m := range history {
+		if m.Role == llm.RoleTool {
+			toolOrder = append(toolOrder, m.ToolCallID)
+		}
+	}
+	if len(toolOrder) != 2 || toolOrder[0] != "call_0" || toolOrder[1] != "call_1" {
+		t.Fatalf("expected tool results in original call order [call_0 call_1], got %v", toolOrder)
 	}
 }
 

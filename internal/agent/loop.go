@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"harper/internal/llm"
 	"harper/internal/tools"
@@ -54,28 +55,44 @@ func (l *Loop) Run(ctx context.Context, history []llm.Message, maxTurns int, onS
 			return history, nil
 		}
 
-		for _, call := range resp.Message.ToolCalls {
-			tool, ok := l.tools[call.Name]
-			var result string
-			if !ok {
-				result = fmt.Sprintf("error: unknown tool %q", call.Name)
-			} else {
-				out, execErr := tool.Execute(ctx, call.Args)
-				if execErr != nil {
-					result = fmt.Sprintf("error: %v", execErr)
-				} else {
-					result = out
+		// Multiple tool calls in one response — most often multiple
+		// Delegate calls, the brain fanning independent subtasks out to
+		// the subtask model — run concurrently rather than one at a time.
+		// Results are still published to history/onStep in the original
+		// call order once every call finishes, so callers (loggers, REPL
+		// output) never see interleaved or out-of-order output.
+		toolMsgs := make([]llm.Message, len(resp.Message.ToolCalls))
+		var wg sync.WaitGroup
+		for i, call := range resp.Message.ToolCalls {
+			wg.Add(1)
+			go func(i int, call llm.ToolCall) {
+				defer wg.Done()
+				toolMsgs[i] = llm.Message{
+					Role:       llm.RoleTool,
+					Content:    l.executeToolCall(ctx, call),
+					ToolCallID: call.ID,
 				}
-			}
-			toolMsg := llm.Message{
-				Role:       llm.RoleTool,
-				Content:    result,
-				ToolCallID: call.ID,
-			}
+			}(i, call)
+		}
+		wg.Wait()
+
+		for _, toolMsg := range toolMsgs {
 			history = append(history, toolMsg)
 			onStep(toolMsg)
 		}
 	}
 
 	return history, fmt.Errorf("agent loop: exceeded max turns (%d)", maxTurns)
+}
+
+func (l *Loop) executeToolCall(ctx context.Context, call llm.ToolCall) string {
+	tool, ok := l.tools[call.Name]
+	if !ok {
+		return fmt.Sprintf("error: unknown tool %q", call.Name)
+	}
+	out, execErr := tool.Execute(ctx, call.Args)
+	if execErr != nil {
+		return fmt.Sprintf("error: %v", execErr)
+	}
+	return out
 }
