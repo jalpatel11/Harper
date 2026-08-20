@@ -92,3 +92,61 @@ func TestDefault_HasResourceLimits(t *testing.T) {
 		t.Fatalf("expected a non-empty default CPU limit")
 	}
 }
+
+func TestResolvePermissionMode_UsesOverrideWhenPresent(t *testing.T) {
+	cfg := PermissionsConfig{Default: "allow", Overrides: map[string]string{"Bash": "ask"}}
+	if got := ResolvePermissionMode("Bash", cfg); got != "ask" {
+		t.Fatalf("expected override 'ask', got %q", got)
+	}
+}
+
+func TestResolvePermissionMode_FallsBackToDefault(t *testing.T) {
+	cfg := PermissionsConfig{Default: "deny", Overrides: map[string]string{"Bash": "ask"}}
+	if got := ResolvePermissionMode("Read", cfg); got != "deny" {
+		t.Fatalf("expected default 'deny' for a tool with no override, got %q", got)
+	}
+}
+
+func TestResolvePermissionMode_FallsBackToAllowWhenNothingConfigured(t *testing.T) {
+	if got := ResolvePermissionMode("Bash", PermissionsConfig{}); got != "allow" {
+		t.Fatalf("expected 'allow' when nothing is configured at all, got %q", got)
+	}
+}
+
+func TestLoad_ParsesPermissionsConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "harper.yaml")
+	yamlContent := `
+permissions:
+  default: allow
+  overrides:
+    Bash: ask
+    Write: deny
+`
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Permissions.Default != "allow" {
+		t.Fatalf("unexpected permissions.default: %q", cfg.Permissions.Default)
+	}
+	if cfg.Permissions.Overrides["Bash"] != "ask" || cfg.Permissions.Overrides["Write"] != "deny" {
+		t.Fatalf("unexpected permissions.overrides: %v", cfg.Permissions.Overrides)
+	}
+}
+
+func TestDefault_HasNoPermissionOverrides(t *testing.T) {
+	// An unconfigured Harper must behave exactly as it did before this
+	// feature existed — every tool resolves to "allow".
+	cfg := Default()
+	if cfg.Permissions.Default != "" || len(cfg.Permissions.Overrides) != 0 {
+		t.Fatalf("expected no permission configuration by default, got %+v", cfg.Permissions)
+	}
+	if ResolvePermissionMode("Bash", cfg.Permissions) != "allow" {
+		t.Fatalf("expected Default() to resolve every tool to allow")
+	}
+}

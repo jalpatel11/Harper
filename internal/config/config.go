@@ -37,6 +37,25 @@ type MCPServerConfig struct {
 	Args    []string `yaml:"args"`
 }
 
+type PermissionsConfig struct {
+	Default   string            `yaml:"default"`
+	Overrides map[string]string `yaml:"overrides"`
+}
+
+// ResolvePermissionMode returns "allow", "ask", or "deny" for a tool,
+// falling back to cfg.Default, falling back to "allow" if nothing is
+// configured at all — an unconfigured Harper behaves exactly as it did
+// before this feature existed.
+func ResolvePermissionMode(toolName string, cfg PermissionsConfig) string {
+	if mode, ok := cfg.Overrides[toolName]; ok && mode != "" {
+		return mode
+	}
+	if cfg.Default != "" {
+		return cfg.Default
+	}
+	return "allow"
+}
+
 type Config struct {
 	Brain       ModelConfig       `yaml:"brain"`
 	Subtask     ModelConfig       `yaml:"subtask"`
@@ -44,6 +63,7 @@ type Config struct {
 	SandboxMode string            `yaml:"sandbox_mode"`
 	Docker      DockerConfig      `yaml:"docker"`
 	MCPServers  []MCPServerConfig `yaml:"mcp_servers"`
+	Permissions PermissionsConfig `yaml:"permissions"`
 }
 
 func Default() Config {
