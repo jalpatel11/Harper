@@ -20,6 +20,10 @@ func NewDelegateTool(subtaskProvider llm.Provider, subtaskTools []tools.Tool, su
 	}
 }
 
+func (t *DelegateTool) SetPermissionChecker(pc PermissionChecker) {
+	t.subtaskLoop.SetPermissionChecker(pc)
+}
+
 func (t *DelegateTool) Name() string { return "Delegate" }
 func (t *DelegateTool) Description() string {
 	return "Hand off task work to the subtask model — this is the primary way work should get " +

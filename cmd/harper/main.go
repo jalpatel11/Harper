@@ -155,6 +155,10 @@ func buildBrainLoop(ctx context.Context, cfg config.Config, exec executor.Execut
 	}
 
 	delegate := agent.NewDelegateTool(subtaskProvider, append(append([]tools.Tool{}, core...), mcpTools...), "you are harper's subtask agent", 40)
+	// The subtask loop has no terminal of its own, REPL or not — its
+	// checker must always be static, never interactive (see Global
+	// Constraints in the permission-modes plan).
+	delegate.SetPermissionChecker(newStaticPermissionChecker(cfg.Permissions))
 
 	brainTools := buildBrainTools(delegate)
 	brainSystemPrompt := "you are harper, a terminal coding agent acting as a lightweight " +
@@ -194,6 +198,16 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+
+		// The brain's only tool is Delegate (see buildBrainTools) — that's
+		// what needs validating here, not the core tools, since the brain
+		// no longer calls those directly. There's no REPL in run mode to
+		// answer an "ask", so this must fail fast at startup.
+		if err := validateNoAskForRunMode(cfg.Permissions, []string{"Delegate"}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		loop.SetPermissionChecker(newStaticPermissionChecker(cfg.Permissions))
 
 		var logWriter = os.Stderr
 		if flags.LogPath != "" {

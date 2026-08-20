@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"harper/internal/config"
@@ -134,5 +135,31 @@ func TestApplyModelOverrides_LeavesConfigUntouchedWhenEmpty(t *testing.T) {
 
 	if cfg.Brain != originalBrain || cfg.Subtask != originalSubtask {
 		t.Fatalf("expected brain/subtask config unchanged when model/effort flags are empty, got brain=%+v subtask=%+v", cfg.Brain, cfg.Subtask)
+	}
+}
+
+func TestBuildBrainLoop_SubtaskAlwaysGetsStaticPermissionChecker(t *testing.T) {
+	// buildBrainLoop itself talks to a real llm.Provider via the startup
+	// capability check, so it isn't practically unit-testable end-to-end.
+	// This pins the underlying behavior buildBrainLoop wires in: an
+	// "ask"-configured tool must deny without ever blocking on input.
+	cfg := config.PermissionsConfig{Default: "ask"}
+	checker := newStaticPermissionChecker(cfg)
+	allowed, err := checker(context.Background(), "Bash", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if allowed {
+		t.Fatalf("expected the subtask's static checker to deny an 'ask'-configured tool without blocking")
+	}
+}
+
+func TestRunModeStartup_FailsFastWhenBrainToolAsks(t *testing.T) {
+	// In run mode the brain's only tool is Delegate (see buildBrainTools) —
+	// that's what validateNoAskForRunMode must be checked against, not the
+	// core tool names, since the brain no longer calls those directly.
+	cfg := config.PermissionsConfig{Overrides: map[string]string{"Delegate": "ask"}}
+	if err := validateNoAskForRunMode(cfg, []string{"Delegate"}); err == nil {
+		t.Fatalf("expected run mode startup validation to fail when the brain's Delegate tool resolves to ask")
 	}
 }
