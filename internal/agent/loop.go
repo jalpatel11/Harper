@@ -10,10 +10,21 @@ import (
 )
 
 type Loop struct {
-	provider     llm.Provider
-	tools        map[string]tools.Tool
-	toolDefs     []llm.ToolDef
-	systemPrompt string
+	provider          llm.Provider
+	tools             map[string]tools.Tool
+	toolDefs          []llm.ToolDef
+	systemPrompt      string
+	permissionChecker PermissionChecker
+}
+
+// PermissionChecker is consulted immediately before a tool executes.
+// Returning false denies the call without running it; a returned error is
+// treated the same as a denial, with the error surfaced as the tool's
+// result content so the model can see and adapt to it.
+type PermissionChecker func(ctx context.Context, toolName string, input map[string]any) (bool, error)
+
+func (l *Loop) SetPermissionChecker(pc PermissionChecker) {
+	l.permissionChecker = pc
 }
 
 func NewLoop(provider llm.Provider, toolset []tools.Tool, systemPrompt string) *Loop {
@@ -90,6 +101,17 @@ func (l *Loop) executeToolCall(ctx context.Context, call llm.ToolCall) string {
 	if !ok {
 		return fmt.Sprintf("error: unknown tool %q", call.Name)
 	}
+
+	if l.permissionChecker != nil {
+		allowed, err := l.permissionChecker(ctx, call.Name, call.Args)
+		if err != nil {
+			return fmt.Sprintf("error: permission check failed: %v", err)
+		}
+		if !allowed {
+			return fmt.Sprintf("permission denied: %s was not approved to run", call.Name)
+		}
+	}
+
 	out, execErr := tool.Execute(ctx, call.Args)
 	if execErr != nil {
 		return fmt.Sprintf("error: %v", execErr)

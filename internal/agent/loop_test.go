@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -167,5 +170,138 @@ func TestLoop_Run_ErrorsWhenMaxTurnsExceeded(t *testing.T) {
 	_, err := loop.Run(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "loop forever"}}, 1, nil)
 	if err == nil {
 		t.Fatalf("expected an error when max turns is exceeded")
+	}
+}
+
+func TestLoop_Run_DeniesToolCallWhenCheckerReturnsFalse(t *testing.T) {
+	provider := &scriptedProvider{
+		responses: []llm.Response{
+			{Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+				{ID: "call_0", Name: "Read", Args: map[string]any{"path": "f.txt"}},
+			}}},
+			{Message: llm.Message{Role: llm.RoleAssistant, Content: "got denied"}},
+		},
+	}
+	toolset := []tools.Tool{&stubTool{name: "Read", result: "should not see this"}}
+
+	loop := NewLoop(provider, toolset, "you are a test agent")
+	loop.SetPermissionChecker(func(ctx context.Context, toolName string, input map[string]any) (bool, error) {
+		return false, nil
+	})
+
+	history, err := loop.Run(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "read f.txt"}}, 10, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	var toolResult string
+	for _, m := range history {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_0" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "permission denied") {
+		t.Fatalf("expected a permission-denied tool result, got: %q", toolResult)
+	}
+	if strings.Contains(toolResult, "should not see this") {
+		t.Fatalf("tool must not have executed when the checker denied it")
+	}
+}
+
+func TestLoop_Run_AllowsToolCallWhenCheckerReturnsTrue(t *testing.T) {
+	provider := &scriptedProvider{
+		responses: []llm.Response{
+			{Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+				{ID: "call_0", Name: "Read", Args: map[string]any{"path": "f.txt"}},
+			}}},
+			{Message: llm.Message{Role: llm.RoleAssistant, Content: "done"}},
+		},
+	}
+	toolset := []tools.Tool{&stubTool{name: "Read", result: "file contents"}}
+
+	loop := NewLoop(provider, toolset, "you are a test agent")
+	var checkerCalls int32
+	loop.SetPermissionChecker(func(ctx context.Context, toolName string, input map[string]any) (bool, error) {
+		atomic.AddInt32(&checkerCalls, 1)
+		if toolName != "Read" {
+			t.Fatalf("unexpected tool name passed to checker: %q", toolName)
+		}
+		return true, nil
+	})
+
+	history, err := loop.Run(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "read f.txt"}}, 10, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if atomic.LoadInt32(&checkerCalls) != 1 {
+		t.Fatalf("expected the checker to be called exactly once, got %d", checkerCalls)
+	}
+
+	var toolResult string
+	for _, m := range history {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_0" {
+			toolResult = m.Content
+		}
+	}
+	if toolResult != "file contents" {
+		t.Fatalf("expected the tool to actually execute when allowed, got: %q", toolResult)
+	}
+}
+
+func TestLoop_Run_NoCheckerSetBehavesAsAlwaysAllow(t *testing.T) {
+	// Existing behavior (no checker ever set) must be unchanged.
+	provider := &scriptedProvider{
+		responses: []llm.Response{
+			{Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+				{ID: "call_0", Name: "Read", Args: map[string]any{"path": "f.txt"}},
+			}}},
+			{Message: llm.Message{Role: llm.RoleAssistant, Content: "done"}},
+		},
+	}
+	toolset := []tools.Tool{&stubTool{name: "Read", result: "file contents"}}
+	loop := NewLoop(provider, toolset, "you are a test agent")
+
+	history, err := loop.Run(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "read f.txt"}}, 10, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var toolResult string
+	for _, m := range history {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_0" {
+			toolResult = m.Content
+		}
+	}
+	if toolResult != "file contents" {
+		t.Fatalf("expected the tool to execute normally with no checker set, got: %q", toolResult)
+	}
+}
+
+func TestLoop_Run_CheckerErrorReturnedAsToolContent(t *testing.T) {
+	provider := &scriptedProvider{
+		responses: []llm.Response{
+			{Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+				{ID: "call_0", Name: "Read", Args: map[string]any{"path": "f.txt"}},
+			}}},
+			{Message: llm.Message{Role: llm.RoleAssistant, Content: "done"}},
+		},
+	}
+	toolset := []tools.Tool{&stubTool{name: "Read", result: "file contents"}}
+	loop := NewLoop(provider, toolset, "you are a test agent")
+	loop.SetPermissionChecker(func(ctx context.Context, toolName string, input map[string]any) (bool, error) {
+		return false, fmt.Errorf("permission backend unreachable")
+	})
+
+	history, err := loop.Run(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "read f.txt"}}, 10, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var toolResult string
+	for _, m := range history {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_0" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "permission backend unreachable") {
+		t.Fatalf("expected the checker's error surfaced as tool content, got: %q", toolResult)
 	}
 }
