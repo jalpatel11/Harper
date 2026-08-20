@@ -239,7 +239,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := RunREPL(ctx, loop, os.Stdin, os.Stdout); err != nil {
+	if err := RunREPL(ctx, loop, os.Stdin, os.Stdout, cfg.Permissions); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

@@ -7,11 +7,14 @@ import (
 	"io"
 
 	"harper/internal/agent"
+	"harper/internal/config"
 	"harper/internal/llm"
 )
 
-func RunREPL(ctx context.Context, loop *agent.Loop, in io.Reader, out io.Writer) error {
+func RunREPL(ctx context.Context, loop *agent.Loop, in io.Reader, out io.Writer, permCfg config.PermissionsConfig) error {
 	scanner := bufio.NewScanner(in)
+	loop.SetPermissionChecker(newInteractivePermissionChecker(permCfg, scanner, out))
+
 	var history []llm.Message
 
 	for scanner.Scan() {
