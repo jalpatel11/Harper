@@ -115,8 +115,14 @@ func buildProvider(mc config.ModelConfig, ollamaCfg config.OllamaConfig) (llm.Pr
 	switch mc.Provider {
 	case "ollama", "":
 		return llm.NewOllamaProvider(ollamaCfg.BaseURL, mc.Model, ollamaCfg.NumCtx, mc.Effort), nil
+	case "anthropic":
+		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("provider \"anthropic\": ANTHROPIC_API_KEY is not set")
+		}
+		return llm.NewAnthropicProvider(apiKey, mc.Model, mc.Effort), nil
 	default:
-		return nil, fmt.Errorf("provider %q is not implemented in v1 (only \"ollama\" is supported; AnthropicProvider is a stub reserved for a later milestone)", mc.Provider)
+		return nil, fmt.Errorf("provider %q is not implemented", mc.Provider)
 	}
 }
 

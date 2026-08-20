@@ -75,9 +75,25 @@ func TestBuildProvider_OllamaAndEmptyDefaultToOllama(t *testing.T) {
 }
 
 func TestBuildProvider_UnsupportedProviderErrorsClearly(t *testing.T) {
-	_, err := buildProvider(config.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5"}, config.OllamaConfig{})
+	_, err := buildProvider(config.ModelConfig{Provider: "made-up-provider", Model: "x"}, config.OllamaConfig{})
 	if err == nil {
 		t.Fatalf("expected an error for an unimplemented provider")
+	}
+}
+
+func TestBuildProvider_AnthropicMissingAPIKeyErrorsClearly(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	_, err := buildProvider(config.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5"}, config.OllamaConfig{})
+	if err == nil {
+		t.Fatalf("expected an error when ANTHROPIC_API_KEY is unset")
+	}
+}
+
+func TestBuildProvider_AnthropicWithAPIKeySucceeds(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test-key")
+	_, err := buildProvider(config.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5"}, config.OllamaConfig{})
+	if err != nil {
+		t.Fatalf("buildProvider: %v", err)
 	}
 }
 
