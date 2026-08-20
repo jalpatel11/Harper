@@ -157,7 +157,11 @@ func buildBrainLoop(ctx context.Context, cfg config.Config, exec executor.Execut
 	delegate := agent.NewDelegateTool(subtaskProvider, append(append([]tools.Tool{}, core...), mcpTools...), "you are harper's subtask agent", 40)
 
 	brainTools := buildBrainTools(core, mcpTools, delegate)
-	return agent.NewLoop(brainProvider, brainTools, "you are harper, a terminal coding agent"), nil
+	brainSystemPrompt := "you are harper, a terminal coding agent. When a task requires " +
+		"multi-step investigation, tracing, or analysis that would take many turns to work " +
+		"through by hand, delegate it to the subtask model via Delegate early — don't spend " +
+		"your own turns grinding through that kind of work step by step."
+	return agent.NewLoop(brainProvider, brainTools, brainSystemPrompt), nil
 }
 
 func main() {
