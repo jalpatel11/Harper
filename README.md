@@ -1,20 +1,20 @@
 # Harper
 
-Harper is a terminal-based coding agent. It runs an agent loop where a configurable **brain** model drives the conversation and tool use, and a configurable **subtask** model handles delegated, token-heavy work. Both roles are provider-agnostic, so the same binary runs against local models (via Ollama) or hosted ones without a rewrite.
+Harper is a terminal-based coding agent. It runs an agent loop where a configurable **brain** model orchestrates the conversation, and a configurable **subtask** model does the actual task work — reading files, running commands, writing code — handed off through a `Delegate` tool. Both roles are provider-agnostic: the same binary runs against local models (via Ollama) or hosted ones (Anthropic) without a rewrite.
 
 ## Features
 
-- **Tool-calling agent loop** — reads a request, calls the brain model with tools, executes tool calls, loops to a final answer.
+- **Orchestrator/worker agent loop** — the brain's only tool is `Delegate`; it breaks a request into one or more delegated subtasks, and the subtask model does the real work (reading files, running commands, editing code) with its own bounded tool loop.
+- **Parallel delegation** — when a request naturally splits into independent pieces, the brain can call `Delegate` multiple times in one turn; those subtasks run concurrently instead of one at a time.
 - **Independent brain/subtask models** — configure each role's provider, model, and reasoning effort separately, or override both at once from the command line.
-- **Delegation** — the brain can hand a self-contained, token-heavy task off to the subtask model via a `Delegate` tool, which runs its own bounded tool loop and returns a summary.
-- **Six built-in tools** — `Read`, `Write`, `Edit`, `Grep`, `Glob`, and `Bash`.
+- **Two providers** — Ollama (local) and Anthropic (hosted), selected per-role in config. Set `ANTHROPIC_API_KEY` in the environment to use Anthropic.
+- **Per-tool permission modes** — `allow` (default), `ask`, or `deny`, configurable globally or per tool. `ask` prompts interactively in the REPL (allow once / allow for session / deny); `run` mode validates at startup and refuses to start if a tool can't be resolved without a human to ask.
+- **Six built-in tools** — `Read`, `Write`, `Edit`, `Grep`, `Glob`, and `Bash` — available to the subtask model.
 - **Two execution modes** — direct execution by default (no sandbox, no startup cost), or an opt-in Docker sandbox for untrusted projects, with network access denied by default and container resource limits.
-- **MCP client support** — connect to external MCP servers and their tools are merged into Harper's tool set automatically.
+- **MCP client support** — connect to external MCP servers and their tools are merged into the subtask model's tool set automatically.
 - **Two interfaces** — an interactive REPL, and a non-interactive `run` mode with structured JSONL session logging, so Harper can be driven by scripts or other tooling.
 
 ## Installation
-
-Requires a running [Ollama](https://ollama.com) server with a model that supports native tool calling (e.g. `qwen3-coder`, `gpt-oss`).
 
 **Install script** (macOS/Linux):
 
@@ -22,20 +22,20 @@ Requires a running [Ollama](https://ollama.com) server with a model that support
 curl -sSL https://raw.githubusercontent.com/jalpatel11/Harper/main/install.sh | sh
 ```
 
-Detects your OS/architecture, downloads the matching release binary, verifies its checksum, and installs it to `/usr/local/bin` (override with `INSTALL_DIR=...`). Pin a specific version with `HARPER_VERSION=v0.1.0`.
+Detects your OS/architecture, downloads the matching release binary, verifies its checksum, and installs it to `/usr/local/bin` (override with `INSTALL_DIR=...`). Pin a specific version with `HARPER_VERSION=v1.1.0`.
 
 **Or download a pre-built binary manually** from the [latest release](https://github.com/jalpatel11/Harper/releases/latest):
 
 | Platform | Download |
 |---|---|
-| macOS (Apple Silicon) | `harper_v0.1.0_darwin_arm64.tar.gz` |
-| macOS (Intel) | `harper_v0.1.0_darwin_amd64.tar.gz` |
-| Linux (arm64) | `harper_v0.1.0_linux_arm64.tar.gz` |
-| Linux (amd64) | `harper_v0.1.0_linux_amd64.tar.gz` |
+| macOS (Apple Silicon) | `harper_v1.1.0_darwin_arm64.tar.gz` |
+| macOS (Intel) | `harper_v1.1.0_darwin_amd64.tar.gz` |
+| Linux (arm64) | `harper_v1.1.0_linux_arm64.tar.gz` |
+| Linux (amd64) | `harper_v1.1.0_linux_amd64.tar.gz` |
 
 ```bash
-tar -xzf harper_v0.1.0_<platform>.tar.gz
-cd harper_v0.1.0_<platform>
+tar -xzf harper_v1.1.0_<platform>.tar.gz
+cd harper_v1.1.0_<platform>
 ./harper version
 ```
 
@@ -51,11 +51,21 @@ go build -o harper ./cmd/harper
 
 ## Quick start
 
-Pull a tool-calling-capable model if you don't already have one:
+Harper needs a model provider for both the brain and subtask roles. Two options:
+
+**Ollama (local, default):**
 
 ```bash
 ollama pull qwen3-coder:30b
 ```
+
+**Anthropic (hosted):**
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+and set `provider: anthropic` for a role in `harper.yaml` (see Configuration below) — there's no built-in default model for Anthropic, so a config file or `--model` is required for that role.
 
 Run Harper interactively in a project directory:
 
@@ -100,13 +110,12 @@ Example `harper.yaml`:
 
 ```yaml
 brain:
-  provider: ollama
-  model: qwen3-coder:30b
-  effort: high          # optional: low, medium, or high
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
 
 subtask:
-  provider: ollama
-  model: qwen3-coder:30b
+  provider: anthropic
+  model: claude-sonnet-5
 
 ollama:
   base_url: http://localhost:11434
@@ -124,7 +133,25 @@ mcp_servers:
   - name: fs
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+
+permissions:
+  default: allow          # allow (default), ask, or deny
+  overrides:
+    Bash: ask
+    Write: ask
 ```
+
+`ANTHROPIC_API_KEY` is read from the environment, never from the config file. Mixing providers across roles (e.g. Anthropic brain + Ollama subtask) is supported — each role's provider is resolved independently.
+
+### Permission modes
+
+Each tool call resolves to `allow`, `ask`, or `deny`: an exact match in `permissions.overrides` wins, then `permissions.default`, then `allow` if nothing is configured — an unconfigured Harper behaves exactly as before this feature existed.
+
+- **`allow`** (default) — runs without confirmation.
+- **`deny`** — the tool call is refused; the model sees a `permission denied` result and can adapt.
+- **`ask`** — only honored interactively, in the REPL. On first use of a tool set to `ask`, Harper prompts `allow once / allow for session / deny? [o/s/d]`; `s` is remembered for the rest of that session, so the same tool isn't re-prompted.
+
+`ask` has no one to prompt outside the REPL: the subtask model's own tool calls are always resolved statically (`ask` silently denies, no blocking), and `harper run` validates at startup that its own tool (`Delegate`) doesn't resolve to `ask` — it refuses to start with a clear error rather than hang or silently deny mid-task.
 
 ## Command reference
 
@@ -168,4 +195,4 @@ Each package's tests are self-contained and don't require external services — 
 
 ## Status
 
-Not yet implemented: a second model provider beyond Ollama (config accepts a `provider` field, but only `"ollama"` is wired up), and a domain-restricted network allowlist for the Docker sandbox (currently a binary network on/off toggle).
+Not yet implemented: a domain-restricted network allowlist for the Docker sandbox (currently a binary network on/off toggle), session persistence/resume, a rich TUI, and Harper-as-MCP-server.

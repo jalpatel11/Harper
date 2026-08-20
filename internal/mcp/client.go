@@ -9,6 +9,7 @@ import (
 	"harper/internal/config"
 	"harper/internal/llm"
 	"harper/internal/tools"
+	"harper/internal/version"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -121,7 +122,7 @@ func (s *sdkSession) CallTool(ctx context.Context, name string, args map[string]
 }
 
 func Connect(ctx context.Context, cfg config.MCPServerConfig) (session, error) {
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "harper", Version: "0.1.0"}, nil)
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "harper", Version: version.Version}, nil)
 	transport := &sdkmcp.CommandTransport{Command: exec.CommandContext(ctx, cfg.Command, cfg.Args...)}
 
 	cs, err := client.Connect(ctx, transport, nil)
