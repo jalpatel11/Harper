@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -34,7 +37,7 @@ func TestRunREPL_EchoesFinalAnswerAndExitsOnEOF(t *testing.T) {
 	in := strings.NewReader("hello\n")
 	var out bytes.Buffer
 
-	if err := RunREPL(context.Background(), loop, in, &out, config.PermissionsConfig{}); err != nil {
+	if err := RunREPL(context.Background(), loop, in, &out, config.Config{}); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if !strings.Contains(out.String(), "hi there") {
@@ -57,7 +60,7 @@ func TestRunREPL_PrintsToolActivity(t *testing.T) {
 	in := strings.NewReader("read f.txt\n")
 	var out bytes.Buffer
 
-	if err := RunREPL(context.Background(), loop, in, &out, config.PermissionsConfig{}); err != nil {
+	if err := RunREPL(context.Background(), loop, in, &out, config.Config{}); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if !strings.Contains(out.String(), "file contents") {
@@ -86,12 +89,128 @@ func TestRunREPL_PermissionPromptDoesNotCorruptNextLineOfInput(t *testing.T) {
 	in := strings.NewReader("run ls\no\nsecond prompt\n")
 	var out bytes.Buffer
 
-	permCfg := config.PermissionsConfig{Default: "ask"}
-	if err := RunREPL(context.Background(), loop, in, &out, permCfg); err != nil {
+	cfg := config.Config{Permissions: config.PermissionsConfig{Default: "ask"}}
+	if err := RunREPL(context.Background(), loop, in, &out, cfg); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if !strings.Contains(out.String(), "second turn answer") {
 		t.Fatalf("expected the second prompt to be processed correctly, got: %q", out.String())
+	}
+}
+
+func TestRunREPL_ModelCommandWithArgSwitchesProviderWithoutPrompting(t *testing.T) {
+	var capturedModel string
+	ollamaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		capturedModel, _ = body["model"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "from new model"},
+			"done":    true,
+		})
+	}))
+	defer ollamaSrv.Close()
+
+	// The original provider has no responses queued — if /model failed to
+	// switch and the loop fell through to this one, the test would panic
+	// on an out-of-range access rather than silently pass.
+	loop := agent.NewLoop(&replStubProvider{}, nil, "you are harper")
+	cfg := config.Config{
+		Brain:  config.ModelConfig{Provider: "ollama"},
+		Ollama: config.OllamaConfig{BaseURL: ollamaSrv.URL, NumCtx: 4096},
+	}
+
+	in := strings.NewReader("/model some-new-model\nhello\n")
+	var out bytes.Buffer
+
+	if err := RunREPL(context.Background(), loop, in, &out, cfg); err != nil {
+		t.Fatalf("RunREPL: %v", err)
+	}
+	if capturedModel != "some-new-model" {
+		t.Fatalf("expected the new provider to receive model %q, got %q", "some-new-model", capturedModel)
+	}
+	if !strings.Contains(out.String(), "from new model") {
+		t.Fatalf("expected the switched provider's response, got: %q", out.String())
+	}
+}
+
+func TestRunREPL_ModelCommandListsAndPicksOllamaModelByNumber(t *testing.T) {
+	var capturedModel string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{{"name": "model-a"}, {"name": "model-b"}},
+			})
+			return
+		}
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		capturedModel, _ = body["model"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "picked"},
+			"done":    true,
+		})
+	}))
+	defer srv.Close()
+
+	loop := agent.NewLoop(&replStubProvider{}, nil, "you are harper")
+	cfg := config.Config{
+		Brain:  config.ModelConfig{Provider: "ollama"},
+		Ollama: config.OllamaConfig{BaseURL: srv.URL, NumCtx: 4096},
+	}
+
+	in := strings.NewReader("/model\n2\nhello\n")
+	var out bytes.Buffer
+
+	if err := RunREPL(context.Background(), loop, in, &out, cfg); err != nil {
+		t.Fatalf("RunREPL: %v", err)
+	}
+	if capturedModel != "model-b" {
+		t.Fatalf("expected model-b picked by number, got %q", capturedModel)
+	}
+	if !strings.Contains(out.String(), "model-a") || !strings.Contains(out.String(), "model-b") {
+		t.Fatalf("expected the model list printed, got: %q", out.String())
+	}
+}
+
+func TestRunREPL_ModelCommandNonOllamaProviderPromptsWithoutListing(t *testing.T) {
+	loop := agent.NewLoop(&replStubProvider{}, nil, "you are harper")
+	cfg := config.Config{Brain: config.ModelConfig{Provider: "anthropic"}}
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+
+	in := strings.NewReader("/model\nclaude-haiku-4-5-20251001\n")
+	var out bytes.Buffer
+
+	if err := RunREPL(context.Background(), loop, in, &out, cfg); err != nil {
+		t.Fatalf("RunREPL: %v", err)
+	}
+	if strings.Contains(out.String(), "Available Ollama models") {
+		t.Fatalf("expected no ollama listing for a non-ollama provider, got: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "model set to") {
+		t.Fatalf("expected confirmation the model was set, got: %q", out.String())
+	}
+}
+
+func TestRunREPL_UnknownCommandPrintsMessageInsteadOfErroring(t *testing.T) {
+	loop := agent.NewLoop(&replStubProvider{responses: []llm.Response{
+		{Message: llm.Message{Role: llm.RoleAssistant, Content: "hi"}},
+	}}, nil, "you are harper")
+
+	in := strings.NewReader("/nonsense\nhello\n")
+	var out bytes.Buffer
+
+	if err := RunREPL(context.Background(), loop, in, &out, config.Config{}); err != nil {
+		t.Fatalf("RunREPL: %v", err)
+	}
+	if !strings.Contains(out.String(), "unknown command") {
+		t.Fatalf("expected an unknown-command message, got: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "hi") {
+		t.Fatalf("expected the REPL to continue working after an unknown command, got: %q", out.String())
 	}
 }
 
