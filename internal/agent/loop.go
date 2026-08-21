@@ -27,6 +27,15 @@ func (l *Loop) SetPermissionChecker(pc PermissionChecker) {
 	l.permissionChecker = pc
 }
 
+// SetProvider swaps which provider Run uses, e.g. for a REPL /model
+// command that switches models mid-session without rebuilding the whole
+// loop. Only safe to call between Run invocations, never concurrently with
+// one in progress — the same expectation RunREPL's own sequential input
+// loop already relies on.
+func (l *Loop) SetProvider(p llm.Provider) {
+	l.provider = p
+}
+
 func NewLoop(provider llm.Provider, toolset []tools.Tool, systemPrompt string) *Loop {
 	l := &Loop{
 		provider:     provider,

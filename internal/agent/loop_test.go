@@ -305,3 +305,27 @@ func TestLoop_Run_CheckerErrorReturnedAsToolContent(t *testing.T) {
 		t.Fatalf("expected the checker's error surfaced as tool content, got: %q", toolResult)
 	}
 }
+
+func TestLoop_SetProvider_SwapsWhichProviderRunUses(t *testing.T) {
+	first := &scriptedProvider{responses: []llm.Response{
+		{Message: llm.Message{Role: llm.RoleAssistant, Content: "from first"}},
+	}}
+	second := &scriptedProvider{responses: []llm.Response{
+		{Message: llm.Message{Role: llm.RoleAssistant, Content: "from second"}},
+	}}
+
+	loop := NewLoop(first, nil, "you are a test agent")
+	loop.SetProvider(second)
+
+	history, err := loop.Run(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, 10, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if first.calls != 0 {
+		t.Fatalf("expected the original provider to never be called after SetProvider, got %d calls", first.calls)
+	}
+	last := history[len(history)-1]
+	if last.Content != "from second" {
+		t.Fatalf("expected the swapped provider's response, got: %q", last.Content)
+	}
+}

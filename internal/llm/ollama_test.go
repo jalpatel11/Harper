@@ -218,3 +218,39 @@ func TestOllamaProvider_Complete_TimesOutOnSlowServer(t *testing.T) {
 		t.Fatalf("expected a timeout error from the slow server")
 	}
 }
+
+func TestListOllamaModels_ReturnsNames(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]any{
+				{"name": "qwen3-coder:30b"},
+				{"name": "muse-glimmer:latest"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	names, err := ListOllamaModels(srv.URL)
+	if err != nil {
+		t.Fatalf("ListOllamaModels: %v", err)
+	}
+	if len(names) != 2 || names[0] != "qwen3-coder:30b" || names[1] != "muse-glimmer:latest" {
+		t.Fatalf("unexpected names: %v", names)
+	}
+}
+
+func TestListOllamaModels_NonOKStatusErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := ListOllamaModels(srv.URL)
+	if err == nil {
+		t.Fatalf("expected an error for a non-200 response")
+	}
+}

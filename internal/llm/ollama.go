@@ -135,3 +135,33 @@ func (p *OllamaProvider) Complete(ctx context.Context, messages []Message, tools
 	}
 	return Response{Message: msg}, nil
 }
+
+// ListOllamaModels returns the names of models already pulled on the
+// Ollama server at baseURL — used to offer an interactive picker (e.g. a
+// REPL /model command) instead of requiring the exact name typed blind.
+func ListOllamaModels(baseURL string) ([]string, error) {
+	resp, err := http.Get(baseURL + "/api/tags")
+	if err != nil {
+		return nil, fmt.Errorf("call ollama: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ollama returned status %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("decode ollama response: %w", err)
+	}
+
+	names := make([]string, len(body.Models))
+	for i, m := range body.Models {
+		names[i] = m.Name
+	}
+	return names, nil
+}
