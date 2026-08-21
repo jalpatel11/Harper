@@ -1,14 +1,14 @@
 # Harper
 
-Harper is a terminal-based coding agent. It runs an agent loop where a configurable **brain** model orchestrates the conversation, and a configurable **subtask** model does the actual task work — reading files, running commands, writing code — handed off through a `Delegate` tool. Both roles are provider-agnostic: the same binary runs against local models (via Ollama) or hosted ones (Anthropic) without a rewrite.
+Harper is a terminal-based coding agent. It runs an agent loop where a configurable **brain** model orchestrates the conversation, and a configurable **subtask** model does the actual task work — reading files, running commands, writing code — handed off through a `Delegate` tool. Both roles are provider-agnostic: the same binary runs against local models (Ollama, LM Studio, llama.cpp, vLLM) or hosted ones (Anthropic) without a rewrite.
 
 ## Features
 
 - **Orchestrator/worker agent loop** — the brain's only tool is `Delegate`; it breaks a request into one or more delegated subtasks, and the subtask model does the real work (reading files, running commands, editing code) with its own bounded tool loop.
 - **Parallel delegation** — when a request naturally splits into independent pieces, the brain can call `Delegate` multiple times in one turn; those subtasks run concurrently instead of one at a time.
-- **Independent brain/subtask models** — configure each role's provider, model, and reasoning effort separately, or override both at once from the command line.
-- **Two providers** — Ollama (local) and Anthropic (hosted), selected per-role in config. Set `ANTHROPIC_API_KEY` in the environment to use Anthropic.
-- **Per-tool permission modes** — `allow` (default), `ask`, or `deny`, configurable globally or per tool. `ask` prompts interactively in the REPL (allow once / allow for session / deny); `run` mode validates at startup and refuses to start if a tool can't be resolved without a human to ask.
+- **Independent brain/subtask models** — configure each role's provider, model, and reasoning effort separately, or override both at once from the command line. Mixing providers across roles is supported.
+- **Five providers** — Ollama, LM Studio, llama.cpp, and vLLM (all local), plus Anthropic (hosted), selected per-role in config. LM Studio, llama.cpp, and vLLM all speak the same OpenAI-compatible chat-completions API, so they share one provider implementation, differing only in default port. Set `ANTHROPIC_API_KEY` in the environment to use Anthropic.
+- **Per-tool permission modes** — `allow` (default), `ask`, or `deny`, configurable globally or per tool. Fully optional: an unconfigured Harper resolves every tool to `allow`, identical to not having the feature at all — nothing to opt out of, just an on-ramp when you want it. `ask` prompts interactively in the REPL (allow once / allow for session / deny); `run` mode validates at startup and refuses to start if a tool can't be resolved without a human to ask.
 - **Six built-in tools** — `Read`, `Write`, `Edit`, `Grep`, `Glob`, and `Bash` — available to the subtask model.
 - **Two execution modes** — direct execution by default (no sandbox, no startup cost), or an opt-in Docker sandbox for untrusted projects, with network access denied by default and container resource limits.
 - **MCP client support** — connect to external MCP servers and their tools are merged into the subtask model's tool set automatically.
@@ -67,6 +67,8 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 and set `provider: anthropic` for a role in `harper.yaml` (see Configuration below) — there's no built-in default model for Anthropic, so a config file or `--model` is required for that role.
 
+**LM Studio / llama.cpp / vLLM (local, OpenAI-compatible):** start the server (LM Studio's local server, `llama-server`, or vLLM's `--api-server`), then set `provider: lmstudio` / `llamacpp` / `vllm` for a role. Each has a sensible default base URL (`:1234`, `:8080`, `:8000` respectively); override with `lmstudio.base_url` / `llamacpp.base_url` / `vllm.base_url` in `harper.yaml` if the server runs elsewhere.
+
 Run Harper interactively in a project directory:
 
 ```bash
@@ -120,6 +122,15 @@ subtask:
 ollama:
   base_url: http://localhost:11434
   num_ctx: 16384
+
+lmstudio:
+  base_url: http://localhost:1234/v1   # default shown; override if the server runs elsewhere
+
+llamacpp:
+  base_url: http://localhost:8080/v1   # default shown
+
+vllm:
+  base_url: http://localhost:8000/v1   # default shown
 
 sandbox_mode: local      # local (default) or docker
 
