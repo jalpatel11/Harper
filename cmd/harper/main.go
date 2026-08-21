@@ -111,27 +111,33 @@ func buildExecutor(ctx context.Context, sandboxMode string, cfg config.Config, w
 	return d, func() { d.Close(ctx) }, nil
 }
 
-func buildProvider(mc config.ModelConfig, ollamaCfg config.OllamaConfig) (llm.Provider, error) {
+func buildProvider(mc config.ModelConfig, cfg config.Config) (llm.Provider, error) {
 	switch mc.Provider {
 	case "ollama", "":
-		return llm.NewOllamaProvider(ollamaCfg.BaseURL, mc.Model, ollamaCfg.NumCtx, mc.Effort), nil
+		return llm.NewOllamaProvider(cfg.Ollama.BaseURL, mc.Model, cfg.Ollama.NumCtx, mc.Effort), nil
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
 		if apiKey == "" {
 			return nil, fmt.Errorf("provider \"anthropic\": ANTHROPIC_API_KEY is not set")
 		}
 		return llm.NewAnthropicProvider(apiKey, mc.Model, mc.Effort), nil
+	case "lmstudio":
+		return llm.NewOpenAICompatProvider(cfg.LMStudio.BaseURL, mc.Model, mc.Effort), nil
+	case "llamacpp":
+		return llm.NewOpenAICompatProvider(cfg.LlamaCpp.BaseURL, mc.Model, mc.Effort), nil
+	case "vllm":
+		return llm.NewOpenAICompatProvider(cfg.VLLM.BaseURL, mc.Model, mc.Effort), nil
 	default:
 		return nil, fmt.Errorf("provider %q is not implemented", mc.Provider)
 	}
 }
 
 func buildBrainLoop(ctx context.Context, cfg config.Config, exec executor.Executor) (*agent.Loop, error) {
-	brainProvider, err := buildProvider(cfg.Brain, cfg.Ollama)
+	brainProvider, err := buildProvider(cfg.Brain, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("brain: %w", err)
 	}
-	subtaskProvider, err := buildProvider(cfg.Subtask, cfg.Ollama)
+	subtaskProvider, err := buildProvider(cfg.Subtask, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("subtask: %w", err)
 	}

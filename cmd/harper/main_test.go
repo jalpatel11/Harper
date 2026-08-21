@@ -65,10 +65,10 @@ func TestParseRunFlags_ErrorsWithNoInstruction(t *testing.T) {
 }
 
 func TestBuildProvider_OllamaAndEmptyDefaultToOllama(t *testing.T) {
-	ollamaCfg := config.OllamaConfig{BaseURL: "http://localhost:11434", NumCtx: 16384}
+	cfg := config.Config{Ollama: config.OllamaConfig{BaseURL: "http://localhost:11434", NumCtx: 16384}}
 
 	for _, providerName := range []string{"ollama", ""} {
-		_, err := buildProvider(config.ModelConfig{Provider: providerName, Model: "qwen3-coder:30b"}, ollamaCfg)
+		_, err := buildProvider(config.ModelConfig{Provider: providerName, Model: "qwen3-coder:30b"}, cfg)
 		if err != nil {
 			t.Fatalf("buildProvider(%q): unexpected error: %v", providerName, err)
 		}
@@ -76,7 +76,7 @@ func TestBuildProvider_OllamaAndEmptyDefaultToOllama(t *testing.T) {
 }
 
 func TestBuildProvider_UnsupportedProviderErrorsClearly(t *testing.T) {
-	_, err := buildProvider(config.ModelConfig{Provider: "made-up-provider", Model: "x"}, config.OllamaConfig{})
+	_, err := buildProvider(config.ModelConfig{Provider: "made-up-provider", Model: "x"}, config.Config{})
 	if err == nil {
 		t.Fatalf("expected an error for an unimplemented provider")
 	}
@@ -84,7 +84,7 @@ func TestBuildProvider_UnsupportedProviderErrorsClearly(t *testing.T) {
 
 func TestBuildProvider_AnthropicMissingAPIKeyErrorsClearly(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	_, err := buildProvider(config.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5"}, config.OllamaConfig{})
+	_, err := buildProvider(config.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5"}, config.Config{})
 	if err == nil {
 		t.Fatalf("expected an error when ANTHROPIC_API_KEY is unset")
 	}
@@ -92,9 +92,24 @@ func TestBuildProvider_AnthropicMissingAPIKeyErrorsClearly(t *testing.T) {
 
 func TestBuildProvider_AnthropicWithAPIKeySucceeds(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test-key")
-	_, err := buildProvider(config.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5"}, config.OllamaConfig{})
+	_, err := buildProvider(config.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5"}, config.Config{})
 	if err != nil {
 		t.Fatalf("buildProvider: %v", err)
+	}
+}
+
+func TestBuildProvider_OpenAICompatFrameworksSucceed(t *testing.T) {
+	cfg := config.Config{
+		LMStudio: config.OpenAICompatConfig{BaseURL: "http://localhost:1234/v1"},
+		LlamaCpp: config.OpenAICompatConfig{BaseURL: "http://localhost:8080/v1"},
+		VLLM:     config.OpenAICompatConfig{BaseURL: "http://localhost:8000/v1"},
+	}
+
+	for _, providerName := range []string{"lmstudio", "llamacpp", "vllm"} {
+		_, err := buildProvider(config.ModelConfig{Provider: providerName, Model: "local-model"}, cfg)
+		if err != nil {
+			t.Fatalf("buildProvider(%q): unexpected error: %v", providerName, err)
+		}
 	}
 }
 
