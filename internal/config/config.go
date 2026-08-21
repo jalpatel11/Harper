@@ -24,6 +24,13 @@ type OllamaConfig struct {
 	NumCtx  int    `yaml:"num_ctx"`
 }
 
+// OpenAICompatConfig configures any server implementing the OpenAI
+// chat-completions API shape — LM Studio, llama.cpp's server, and vLLM all
+// share this same shape, differing only in base URL.
+type OpenAICompatConfig struct {
+	BaseURL string `yaml:"base_url"`
+}
+
 type DockerConfig struct {
 	Image   string `yaml:"image"`
 	Network string `yaml:"network"`
@@ -57,20 +64,26 @@ func ResolvePermissionMode(toolName string, cfg PermissionsConfig) string {
 }
 
 type Config struct {
-	Brain       ModelConfig       `yaml:"brain"`
-	Subtask     ModelConfig       `yaml:"subtask"`
-	Ollama      OllamaConfig      `yaml:"ollama"`
-	SandboxMode string            `yaml:"sandbox_mode"`
-	Docker      DockerConfig      `yaml:"docker"`
-	MCPServers  []MCPServerConfig `yaml:"mcp_servers"`
-	Permissions PermissionsConfig `yaml:"permissions"`
+	Brain       ModelConfig        `yaml:"brain"`
+	Subtask     ModelConfig        `yaml:"subtask"`
+	Ollama      OllamaConfig       `yaml:"ollama"`
+	LMStudio    OpenAICompatConfig `yaml:"lmstudio"`
+	LlamaCpp    OpenAICompatConfig `yaml:"llamacpp"`
+	VLLM        OpenAICompatConfig `yaml:"vllm"`
+	SandboxMode string             `yaml:"sandbox_mode"`
+	Docker      DockerConfig       `yaml:"docker"`
+	MCPServers  []MCPServerConfig  `yaml:"mcp_servers"`
+	Permissions PermissionsConfig  `yaml:"permissions"`
 }
 
 func Default() Config {
 	return Config{
-		Brain:   ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
-		Subtask: ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
-		Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", NumCtx: 16384},
+		Brain:    ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
+		Subtask:  ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
+		Ollama:   OllamaConfig{BaseURL: "http://localhost:11434", NumCtx: 16384},
+		LMStudio: OpenAICompatConfig{BaseURL: "http://localhost:1234/v1"},
+		LlamaCpp: OpenAICompatConfig{BaseURL: "http://localhost:8080/v1"},
+		VLLM:     OpenAICompatConfig{BaseURL: "http://localhost:8000/v1"},
 		// No sandbox in the default path, so there's no container-startup
 		// cost — Docker is opt-in (--sandbox=docker) for untrusted projects.
 		SandboxMode: "local",

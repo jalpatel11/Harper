@@ -150,3 +150,46 @@ func TestDefault_HasNoPermissionOverrides(t *testing.T) {
 		t.Fatalf("expected Default() to resolve every tool to allow")
 	}
 }
+
+func TestDefault_HasSensibleOpenAICompatBaseURLs(t *testing.T) {
+	cfg := Default()
+	if cfg.LMStudio.BaseURL != "http://localhost:1234/v1" {
+		t.Fatalf("unexpected default LM Studio base_url: %q", cfg.LMStudio.BaseURL)
+	}
+	if cfg.LlamaCpp.BaseURL != "http://localhost:8080/v1" {
+		t.Fatalf("unexpected default llama.cpp base_url: %q", cfg.LlamaCpp.BaseURL)
+	}
+	if cfg.VLLM.BaseURL != "http://localhost:8000/v1" {
+		t.Fatalf("unexpected default vLLM base_url: %q", cfg.VLLM.BaseURL)
+	}
+}
+
+func TestLoad_ParsesOpenAICompatBaseURLOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "harper.yaml")
+	yamlContent := `
+lmstudio:
+  base_url: http://192.168.1.50:1234/v1
+llamacpp:
+  base_url: http://192.168.1.51:8080/v1
+vllm:
+  base_url: http://192.168.1.52:8000/v1
+`
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LMStudio.BaseURL != "http://192.168.1.50:1234/v1" {
+		t.Fatalf("unexpected lmstudio.base_url: %q", cfg.LMStudio.BaseURL)
+	}
+	if cfg.LlamaCpp.BaseURL != "http://192.168.1.51:8080/v1" {
+		t.Fatalf("unexpected llamacpp.base_url: %q", cfg.LlamaCpp.BaseURL)
+	}
+	if cfg.VLLM.BaseURL != "http://192.168.1.52:8000/v1" {
+		t.Fatalf("unexpected vllm.base_url: %q", cfg.VLLM.BaseURL)
+	}
+}
