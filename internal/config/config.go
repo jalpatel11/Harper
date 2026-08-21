@@ -64,9 +64,16 @@ func ResolvePermissionMode(toolName string, cfg PermissionsConfig) string {
 }
 
 type Config struct {
-	Brain       ModelConfig        `yaml:"brain"`
-	Subtask     ModelConfig        `yaml:"subtask"`
-	Ollama      OllamaConfig       `yaml:"ollama"`
+	Brain   ModelConfig  `yaml:"brain"`
+	Subtask ModelConfig  `yaml:"subtask"`
+	Ollama  OllamaConfig `yaml:"ollama"`
+	// Mode is "" (default) for the orchestrator architecture — the brain's
+	// only tool is Delegate, and the subtask model does all task work — or
+	// "simple" for a flat, single-loop agent: the brain gets the core/MCP
+	// tools directly, Subtask is unused, and there's only one model in the
+	// loop. Optional, off by default, same as Permissions — nothing changes
+	// for a config that doesn't set it.
+	Mode        string             `yaml:"mode"`
 	LMStudio    OpenAICompatConfig `yaml:"lmstudio"`
 	LlamaCpp    OpenAICompatConfig `yaml:"llamacpp"`
 	VLLM        OpenAICompatConfig `yaml:"vllm"`

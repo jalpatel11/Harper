@@ -26,3 +26,13 @@ func buildCoreTools(exec executor.Executor) []tools.Tool {
 func buildBrainTools(delegate tools.Tool) []tools.Tool {
 	return []tools.Tool{delegate}
 }
+
+// buildSimpleModeBrainTools gives the brain direct access to the core and
+// MCP tools — a flat, single-loop agent with no Delegate/subtask split and
+// no second model in the loop, for `mode: simple`.
+func buildSimpleModeBrainTools(coreTools, mcpTools []tools.Tool) []tools.Tool {
+	all := make([]tools.Tool, 0, len(coreTools)+len(mcpTools))
+	all = append(all, coreTools...)
+	all = append(all, mcpTools...)
+	return all
+}

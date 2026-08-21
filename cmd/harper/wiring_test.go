@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"harper/internal/executor"
+	"harper/internal/tools"
 )
 
 func TestBuildCoreTools_ReturnsAllSixInOrder(t *testing.T) {
@@ -37,5 +38,19 @@ func TestBuildBrainTools_IsDelegateOnly(t *testing.T) {
 	got := buildBrainTools(delegate)
 	if len(got) != 1 || got[0].Name() != "Delegate" {
 		t.Fatalf("expected the brain's only tool to be Delegate, got %v", got)
+	}
+}
+
+func TestBuildSimpleModeBrainTools_ReturnsCoreAndMCP(t *testing.T) {
+	exec := executor.NewLocalExecutor(t.TempDir())
+	core := buildCoreTools(exec)
+	mcp := []tools.Tool{&namedStubTool{name: "mcp_fs_list"}}
+
+	got := buildSimpleModeBrainTools(core, mcp)
+	if len(got) != len(core)+len(mcp) {
+		t.Fatalf("expected %d tools, got %d", len(core)+len(mcp), len(got))
+	}
+	if got[len(got)-1].Name() != "mcp_fs_list" {
+		t.Fatalf("expected the MCP tool last, got %q", got[len(got)-1].Name())
 	}
 }

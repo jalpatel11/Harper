@@ -36,13 +36,14 @@ func TestParseRunFlags_OverridesAllFields(t *testing.T) {
 		"--config", "harper.yaml",
 		"--model", "gpt-oss:20b",
 		"--effort", "high",
+		"--mode", "simple",
 	})
 	if err != nil {
 		t.Fatalf("parseRunFlags: %v", err)
 	}
 	if flags.WorkDir != "/workspace" || flags.Sandbox != "local" || flags.MaxTurns != 10 ||
 		flags.LogPath != "session.jsonl" || flags.ConfigPath != "harper.yaml" ||
-		flags.Model != "gpt-oss:20b" || flags.Effort != "high" {
+		flags.Model != "gpt-oss:20b" || flags.Effort != "high" || flags.Mode != "simple" {
 		t.Fatalf("unexpected flags: %+v", flags)
 	}
 }
@@ -52,8 +53,25 @@ func TestParseRunFlags_ModelAndEffortDefaultEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseRunFlags: %v", err)
 	}
-	if flags.Model != "" || flags.Effort != "" {
-		t.Fatalf("expected empty Model/Effort by default, got %+v", flags)
+	if flags.Model != "" || flags.Effort != "" || flags.Mode != "" {
+		t.Fatalf("expected empty Model/Effort/Mode by default, got %+v", flags)
+	}
+}
+
+func TestApplyModeOverride_OverridesConfigMode(t *testing.T) {
+	cfg := config.Default()
+	cfg = applyModeOverride(cfg, "simple")
+	if cfg.Mode != "simple" {
+		t.Fatalf("expected Mode overridden to simple, got %q", cfg.Mode)
+	}
+}
+
+func TestApplyModeOverride_LeavesConfigUntouchedWhenEmpty(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mode = "simple"
+	cfg = applyModeOverride(cfg, "")
+	if cfg.Mode != "simple" {
+		t.Fatalf("expected Mode unchanged when the flag is empty, got %q", cfg.Mode)
 	}
 }
 

@@ -193,3 +193,27 @@ vllm:
 		t.Fatalf("unexpected vllm.base_url: %q", cfg.VLLM.BaseURL)
 	}
 }
+
+func TestDefault_HasEmptyModeForOrchestratorBehavior(t *testing.T) {
+	// An unconfigured Harper must behave exactly as it did before this
+	// feature existed — the orchestrator/Delegate-only architecture.
+	if Default().Mode != "" {
+		t.Fatalf("expected an empty default Mode, got %q", Default().Mode)
+	}
+}
+
+func TestLoad_ParsesMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "harper.yaml")
+	if err := os.WriteFile(path, []byte("mode: simple\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Mode != "simple" {
+		t.Fatalf("unexpected mode: %q", cfg.Mode)
+	}
+}
