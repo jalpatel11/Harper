@@ -22,20 +22,20 @@ Harper is a terminal-based coding agent. It runs an agent loop where a configura
 curl -sSL https://raw.githubusercontent.com/jalpatel11/Harper/main/install.sh | sh
 ```
 
-Detects your OS/architecture, downloads the matching release binary, verifies its checksum, and installs it to `/usr/local/bin` (override with `INSTALL_DIR=...`). Pin a specific version with `HARPER_VERSION=v1.1.0`.
+Detects your OS/architecture, downloads the matching release binary, verifies its checksum, and installs it to `/usr/local/bin` (override with `INSTALL_DIR=...`). Pin a specific version with `HARPER_VERSION=v1.2.0`.
 
 **Or download a pre-built binary manually** from the [latest release](https://github.com/jalpatel11/Harper/releases/latest):
 
 | Platform | Download |
 |---|---|
-| macOS (Apple Silicon) | `harper_v1.1.0_darwin_arm64.tar.gz` |
-| macOS (Intel) | `harper_v1.1.0_darwin_amd64.tar.gz` |
-| Linux (arm64) | `harper_v1.1.0_linux_arm64.tar.gz` |
-| Linux (amd64) | `harper_v1.1.0_linux_amd64.tar.gz` |
+| macOS (Apple Silicon) | `harper_v1.2.0_darwin_arm64.tar.gz` |
+| macOS (Intel) | `harper_v1.2.0_darwin_amd64.tar.gz` |
+| Linux (arm64) | `harper_v1.2.0_linux_arm64.tar.gz` |
+| Linux (amd64) | `harper_v1.2.0_linux_amd64.tar.gz` |
 
 ```bash
-tar -xzf harper_v1.1.0_<platform>.tar.gz
-cd harper_v1.1.0_<platform>
+tar -xzf harper_v1.2.0_<platform>.tar.gz
+cd harper_v1.2.0_<platform>
 ./harper version
 ```
 
