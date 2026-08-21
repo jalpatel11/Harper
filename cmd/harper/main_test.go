@@ -93,6 +93,15 @@ func TestBuildProvider_OllamaAndEmptyDefaultToOllama(t *testing.T) {
 	}
 }
 
+func TestBuildProvider_MissingModelErrorsClearly(t *testing.T) {
+	for _, providerName := range []string{"ollama", "", "anthropic", "lmstudio", "llamacpp", "vllm"} {
+		_, err := buildProvider(config.ModelConfig{Provider: providerName, Model: ""}, config.Config{})
+		if err == nil {
+			t.Fatalf("buildProvider(%q, model=\"\"): expected an error when no model is configured", providerName)
+		}
+	}
+}
+
 func TestBuildProvider_UnsupportedProviderErrorsClearly(t *testing.T) {
 	_, err := buildProvider(config.ModelConfig{Provider: "made-up-provider", Model: "x"}, config.Config{})
 	if err == nil {

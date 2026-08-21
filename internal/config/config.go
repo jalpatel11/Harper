@@ -85,8 +85,11 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		Brain:    ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
-		Subtask:  ModelConfig{Provider: "ollama", Model: "qwen3-coder:30b"},
+		// No default model — an unconfigured Harper must not silently pick
+		// a model the user may not have pulled. Provider still defaults to
+		// "ollama" (see buildProvider), but the model itself is required.
+		Brain:    ModelConfig{Provider: "ollama"},
+		Subtask:  ModelConfig{Provider: "ollama"},
 		Ollama:   OllamaConfig{BaseURL: "http://localhost:11434", NumCtx: 16384},
 		LMStudio: OpenAICompatConfig{BaseURL: "http://localhost:1234/v1"},
 		LlamaCpp: OpenAICompatConfig{BaseURL: "http://localhost:8080/v1"},

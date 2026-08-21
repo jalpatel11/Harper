@@ -51,12 +51,13 @@ go build -o harper ./cmd/harper
 
 ## Quick start
 
-Harper needs a model provider for both the brain and subtask roles. Two options:
+Harper needs a model configured for both the brain and subtask roles before it will run — there's no built-in default model for any provider, so an unconfigured Harper fails fast with a clear error rather than silently picking a model you may not have. Provider defaults to `ollama` when unset, but the model name is always required, either via `--model` or `brain.model`/`subtask.model` in `harper.yaml`.
 
-**Ollama (local, default):**
+**Ollama (local):**
 
 ```bash
 ollama pull qwen3-coder:30b
+./harper --model qwen3-coder:30b
 ```
 
 **Anthropic (hosted):**
@@ -65,23 +66,23 @@ ollama pull qwen3-coder:30b
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-and set `provider: anthropic` for a role in `harper.yaml` (see Configuration below) — there's no built-in default model for Anthropic, so a config file or `--model` is required for that role.
+and set `provider: anthropic` plus a model for a role in `harper.yaml` (see Configuration below) — `--model` alone isn't enough to switch providers, since it only overrides the model name, not which provider is used.
 
-**LM Studio / llama.cpp / vLLM (local, OpenAI-compatible):** start the server (LM Studio's local server, `llama-server`, or vLLM's `--api-server`), then set `provider: lmstudio` / `llamacpp` / `vllm` for a role. Each has a sensible default base URL (`:1234`, `:8080`, `:8000` respectively); override with `lmstudio.base_url` / `llamacpp.base_url` / `vllm.base_url` in `harper.yaml` if the server runs elsewhere.
+**LM Studio / llama.cpp / vLLM (local, OpenAI-compatible):** start the server (LM Studio's local server, `llama-server`, or vLLM's `--api-server`), then set `provider: lmstudio` / `llamacpp` / `vllm` plus a model for a role in `harper.yaml`. Each provider has a sensible default base URL (`:1234`, `:8080`, `:8000` respectively); override with `lmstudio.base_url` / `llamacpp.base_url` / `vllm.base_url` if the server runs elsewhere.
 
-Run Harper interactively in a project directory:
+Run Harper interactively in a project directory (Ollama, no config file needed):
 
 ```bash
-./harper
+./harper --model qwen3-coder:30b
 ```
 
 Or give it a single instruction and let it exit when done:
 
 ```bash
-./harper run "summarize what this project does"
+./harper run "summarize what this project does" --model qwen3-coder:30b
 ```
 
-To use a different model without writing a config file:
+`--model` sets both brain and subtask roles at once, and `--effort` alongside it if you want reasoning effort applied too:
 
 ```bash
 ./harper run "list the files in this directory" --model gpt-oss:20b --effort high

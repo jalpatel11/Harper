@@ -202,6 +202,19 @@ func TestDefault_HasEmptyModeForOrchestratorBehavior(t *testing.T) {
 	}
 }
 
+func TestDefault_HasNoModelConfigured(t *testing.T) {
+	// A hardcoded default model silently picks a model the user may not
+	// have pulled, on whatever provider happens to be the fallback. The
+	// user must explicitly configure a model before Harper will run.
+	cfg := Default()
+	if cfg.Brain.Model != "" {
+		t.Fatalf("expected no default brain model, got %q", cfg.Brain.Model)
+	}
+	if cfg.Subtask.Model != "" {
+		t.Fatalf("expected no default subtask model, got %q", cfg.Subtask.Model)
+	}
+}
+
 func TestLoad_ParsesMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "harper.yaml")

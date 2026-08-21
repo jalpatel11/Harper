@@ -124,6 +124,9 @@ func buildExecutor(ctx context.Context, sandboxMode string, cfg config.Config, w
 }
 
 func buildProvider(mc config.ModelConfig, cfg config.Config) (llm.Provider, error) {
+	if mc.Model == "" {
+		return nil, fmt.Errorf("no model configured — set --model, or brain.model/subtask.model in your config file")
+	}
 	switch mc.Provider {
 	case "ollama", "":
 		return llm.NewOllamaProvider(cfg.Ollama.BaseURL, mc.Model, cfg.Ollama.NumCtx, mc.Effort), nil
