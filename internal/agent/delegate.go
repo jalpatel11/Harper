@@ -45,7 +45,13 @@ func (t *DelegateTool) Execute(ctx context.Context, input map[string]any) (strin
 		return "", fmt.Errorf("delegate: missing required \"task\" argument")
 	}
 
-	history, err := t.subtaskLoop.Run(ctx, []llm.Message{{Role: llm.RoleUser, Content: task}}, t.maxTurns, nil)
+	var onStep StepFunc
+	if reporter, ok := subtaskReporterFromContext(ctx); ok {
+		callID, _ := toolCallIDFromContext(ctx)
+		onStep = func(m llm.Message) { reporter(callID, m) }
+	}
+
+	history, err := t.subtaskLoop.Run(ctx, []llm.Message{{Role: llm.RoleUser, Content: task}}, t.maxTurns, onStep)
 	if err != nil {
 		return "", fmt.Errorf("delegate: subtask loop: %w", err)
 	}

@@ -106,6 +106,8 @@ func (l *Loop) Run(ctx context.Context, history []llm.Message, maxTurns int, onS
 }
 
 func (l *Loop) executeToolCall(ctx context.Context, call llm.ToolCall) string {
+	ctx = WithToolCallID(ctx, call.ID)
+
 	tool, ok := l.tools[call.Name]
 	if !ok {
 		return fmt.Sprintf("error: unknown tool %q", call.Name)
