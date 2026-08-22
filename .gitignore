@@ -42,7 +42,11 @@ go.work.sum
 /spec.md
 /v1tasks.md
 /info.txt
+/docs/superpowers
 
 # macOS
 .DS_Store
 /.claude
+
+# Brainstorming visual-companion scratch files
+/.superpowers
