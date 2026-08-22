@@ -85,14 +85,64 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
+		switch msg.String() {
+		case "ctrl+c":
 			return m, tea.Quit
+		case "enter":
+			if m.turnInFlight {
+				return m, nil
+			}
+			input := strings.TrimSpace(m.textInput.Value())
+			if input == "" {
+				return m, nil
+			}
+			m.textInput.Reset()
+			m.conversation = append(m.conversation, conversationEntry{kind: "user", text: input})
+			m.history = append(m.history, llm.Message{Role: llm.RoleUser, Content: input})
+			m.turnInFlight = true
+			return m, m.runTurn()
 		}
+
+	case turnDoneMsg:
+		m.turnInFlight = false
+		if msg.err != nil {
+			m.conversation = append(m.conversation, conversationEntry{kind: "error", text: fmt.Sprintf("error: %v", msg.err)})
+			return m, nil
+		}
+		// Carry the exact returned history forward, the same way RunREPL
+		// does (`history = updated`) — this is what preserves Delegate's
+		// tool_use/tool_result message pairs for the next turn. Rebuilding
+		// history from the display log instead would silently drop them.
+		m.history = msg.history
+		final := msg.history[len(msg.history)-1]
+		m.conversation = append(m.conversation, conversationEntry{kind: "assistant", text: final.Content})
+		return m, nil
+
+	case toolStepMsg:
+		if msg.message.Role == llm.RoleTool {
+			m.conversation = append(m.conversation, conversationEntry{kind: "tool", text: msg.message.Content})
+		}
+		return m, nil
 	}
 
 	var cmd tea.Cmd
 	m.textInput, cmd = m.textInput.Update(msg)
 	return m, cmd
+}
+
+// runTurn captures m.history (already updated with the new user message by
+// the "enter" case in Update) at the moment it's called, then runs
+// loop.Run over that snapshot in the background.
+func (m *Model) runTurn() tea.Cmd {
+	history := m.history
+	return func() tea.Msg {
+		updated, err := m.loop.Run(m.ctx, history, 30, func(step llm.Message) {
+			if m.program != nil {
+				m.program.Send(toolStepMsg{message: step})
+			}
+		})
+		return turnDoneMsg{history: updated, err: err}
+	}
 }
 
 func (m *Model) View() string {
