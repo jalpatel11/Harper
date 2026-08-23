@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"harper/cmd/harper/tui"
 	"harper/internal/agent"
 	"harper/internal/config"
 	"harper/internal/executor"
@@ -300,6 +301,14 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+
+	if isInteractiveTerminal() {
+		if err := tui.RunTUI(ctx, loop, cfg, buildProvider); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	if err := RunREPL(ctx, loop, os.Stdin, os.Stdout, cfg); err != nil {
