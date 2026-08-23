@@ -33,5 +33,5 @@ type subtaskDoneMsg struct {
 type permissionRequestMsg struct {
 	toolName string
 	input    map[string]any
-	respond  chan bool
+	respond  chan permissionResponse
 }

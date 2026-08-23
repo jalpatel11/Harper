@@ -36,7 +36,7 @@ type subtaskCard struct {
 // there is exactly one mechanism for "modal, not a normal turn."
 type pendingPrompt struct {
 	kind              string // "permission" or "model-pick"
-	permissionRespond chan bool
+	permissionRespond chan permissionResponse
 	modelPickRespond  chan string
 	modelPickOptions  []string
 }
@@ -202,11 +202,11 @@ func (m *Model) resolvePendingPrompt(input string) (tea.Model, tea.Cmd) {
 	case "permission":
 		switch strings.ToLower(input) {
 		case "s":
-			p.permissionRespond <- true
+			p.permissionRespond <- permissionResponse{allowed: true, persist: true}
 		case "o", "":
-			p.permissionRespond <- true
+			p.permissionRespond <- permissionResponse{allowed: true, persist: false}
 		default:
-			p.permissionRespond <- false
+			p.permissionRespond <- permissionResponse{allowed: false, persist: false}
 		}
 	}
 	return m, nil
