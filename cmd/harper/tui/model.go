@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -100,6 +101,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textInput.Reset()
 				return m.resolvePendingPrompt(input)
 			}
+			if strings.HasPrefix(input, "/") {
+				m.textInput.Reset()
+				return m.handleSlashCommand(input)
+			}
 			if m.turnInFlight || input == "" {
 				return m, nil
 			}
@@ -191,7 +196,7 @@ func (m *Model) runTurn() tea.Cmd {
 }
 
 // resolvePendingPrompt answers whatever modal prompt is currently pending
-// (a permission request today; Task 7 adds "model-pick") with the user's
+// (a permission request or, since Task 7, "model-pick") with the user's
 // just-submitted input line, then clears m.pendingPrompt so "enter" resumes
 // its normal turn-submission behavior.
 func (m *Model) resolvePendingPrompt(input string) (tea.Model, tea.Cmd) {
@@ -208,8 +213,75 @@ func (m *Model) resolvePendingPrompt(input string) (tea.Model, tea.Cmd) {
 		default:
 			p.permissionRespond <- permissionResponse{allowed: false, persist: false}
 		}
+	case "model-pick":
+		chosen := input
+		if n, err := strconv.Atoi(input); err == nil && n >= 1 && n <= len(p.modelPickOptions) {
+			chosen = p.modelPickOptions[n-1]
+		}
+		if chosen == "" {
+			return m, nil
+		}
+		return m, m.applyModelChoice(chosen)
 	}
 	return m, nil
+}
+
+func (m *Model) handleSlashCommand(line string) (tea.Model, tea.Cmd) {
+	fields := strings.Fields(line)
+	switch fields[0] {
+	case "/model":
+		return m.handleModelCommand(fields[1:])
+	default:
+		m.conversation = append(m.conversation, conversationEntry{kind: "error", text: "unknown command: " + fields[0]})
+		return m, nil
+	}
+}
+
+// handleModelCommand mirrors cmd/harper/repl.go's handleModelCommand,
+// adapted for Bubble Tea: the no-argument interactive path uses the
+// pendingPrompt/modelPickRequestMsg bridge instead of scanner.Scan(), since
+// Update cannot block. Some duplication with the plain REPL's version is
+// deliberate — the two are separate, independently-testable front ends
+// over different I/O models (see the design doc's package-separation
+// rationale), not a DRY violation to fix.
+func (m *Model) handleModelCommand(args []string) (tea.Model, tea.Cmd) {
+	if len(args) > 0 {
+		return m, m.applyModelChoice(args[0])
+	}
+
+	var options []string
+	if m.cfg.Brain.Provider == "ollama" || m.cfg.Brain.Provider == "" {
+		models, err := llm.ListOllamaModels(m.cfg.Ollama.BaseURL)
+		if err != nil {
+			m.conversation = append(m.conversation, conversationEntry{kind: "error", text: fmt.Sprintf("list ollama models: %v", err)})
+			return m, nil
+		}
+		options = models
+	}
+
+	var b strings.Builder
+	if len(options) > 0 {
+		b.WriteString("Available Ollama models:\n")
+		for i, opt := range options {
+			fmt.Fprintf(&b, "  %d) %s\n", i+1, opt)
+		}
+	}
+	b.WriteString("Pick a number, or type a model name:")
+	m.conversation = append(m.conversation, conversationEntry{kind: "assistant", text: b.String()})
+	m.pendingPrompt = &pendingPrompt{kind: "model-pick", modelPickOptions: options}
+	return m, nil
+}
+
+func (m *Model) applyModelChoice(chosen string) tea.Cmd {
+	m.cfg.Brain.Model = chosen
+	newProvider, err := m.buildProvider(m.cfg.Brain, m.cfg)
+	if err != nil {
+		m.conversation = append(m.conversation, conversationEntry{kind: "error", text: err.Error()})
+		return nil
+	}
+	m.loop.SetProvider(newProvider)
+	m.conversation = append(m.conversation, conversationEntry{kind: "assistant", text: fmt.Sprintf("model set to %q", chosen)})
+	return nil
 }
 
 func (m *Model) View() string {

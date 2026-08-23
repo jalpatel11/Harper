@@ -35,3 +35,11 @@ type permissionRequestMsg struct {
 	input    map[string]any
 	respond  chan permissionResponse
 }
+
+// modelPickRequestMsg asks the TUI to show a numbered list of Ollama
+// models (or, for other providers, a bare prompt) and answer it on
+// respond.
+type modelPickRequestMsg struct {
+	options []string
+	respond chan string
+}

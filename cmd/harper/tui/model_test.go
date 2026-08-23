@@ -175,6 +175,34 @@ func TestModel_Update_SecondTurnHistoryPreservesToolCallFromFirstTurn(t *testing
 	}
 }
 
+func TestModel_Update_ModelCommandWithArgSwitchesProviderWithoutPrompting(t *testing.T) {
+	var capturedModel string
+	loop := agent.NewLoop(&scriptedStubProvider{}, nil, "you are harper")
+	cfg := config.Config{Brain: config.ModelConfig{Provider: "ollama", Model: "old-model"}}
+	m := newModel(context.Background(), loop, cfg, func(mc config.ModelConfig, _ config.Config) (llm.Provider, error) {
+		capturedModel = mc.Model
+		return &scriptedStubProvider{}, nil
+	})
+	m.width, m.height = 80, 24
+
+	m.textInput.SetValue("/model some-new-model")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*Model)
+
+	if capturedModel != "some-new-model" {
+		t.Fatalf("expected buildProvider called with the new model, got %q", capturedModel)
+	}
+	found := false
+	for _, e := range m.conversation {
+		if strings.Contains(e.text, "model set to") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a confirmation message in the conversation, got: %+v", m.conversation)
+	}
+}
+
 func TestModel_Update_SubtaskStepMsgAddsAndUpdatesCard(t *testing.T) {
 	loop := agent.NewLoop(&scriptedStubProvider{}, nil, "you are harper")
 	cfg := config.Config{Brain: config.ModelConfig{Provider: "ollama", Model: "m"}}
