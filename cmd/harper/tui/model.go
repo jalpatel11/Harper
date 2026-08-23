@@ -370,6 +370,9 @@ func (m *Model) conversationLineBudget() int {
 }
 
 // tailLines keeps at most the last n lines of s, dropping the oldest ones.
+// The result never ends in a trailing "\n": lipgloss counts a trailing
+// newline as an additional rendered line, which would silently push the
+// content one line past n.
 func tailLines(s string, n int) string {
 	if s == "" {
 		return s
@@ -379,7 +382,7 @@ func tailLines(s string, n int) string {
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
 	}
-	return strings.Join(lines, "\n") + "\n"
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) renderSubtasks() string {

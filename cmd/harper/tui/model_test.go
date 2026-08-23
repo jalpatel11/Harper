@@ -398,7 +398,7 @@ func TestModel_Update_ConversationPanelTrimsToFitAvailableHeight(t *testing.T) {
 	}
 
 	rendered := m.renderConversation()
-	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+	lines := strings.Split(rendered, "\n")
 	budget := m.conversationLineBudget()
 	if len(lines) > budget {
 		t.Fatalf("expected at most %d rendered lines, got %d:\n%s", budget, len(lines), rendered)
