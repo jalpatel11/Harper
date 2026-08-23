@@ -27,3 +27,11 @@ type subtaskStepMsg struct {
 type subtaskDoneMsg struct {
 	toolCallID string
 }
+
+// permissionRequestMsg asks the TUI to show an allow-once/allow-for-session/
+// deny prompt and answer it on respond.
+type permissionRequestMsg struct {
+	toolName string
+	input    map[string]any
+	respond  chan bool
+}

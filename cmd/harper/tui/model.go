@@ -30,10 +30,16 @@ type subtaskCard struct {
 	lastStep   string
 }
 
-// pendingPrompt holds a permission or confirmation prompt awaiting the
-// user's response. Empty for now — a later task populates it when wiring up
-// permission prompts; it exists here only so Model's field compiles.
-type pendingPrompt struct{}
+// pendingPrompt marks the TUI as waiting on a special answer to the next
+// submitted line, rather than a new agent turn — used by both the
+// permission bridge (this task) and /model's no-arg picker (Task 7), so
+// there is exactly one mechanism for "modal, not a normal turn."
+type pendingPrompt struct {
+	kind              string // "permission" or "model-pick"
+	permissionRespond chan bool
+	modelPickRespond  chan string
+	modelPickOptions  []string
+}
 
 type Model struct {
 	ctx           context.Context
@@ -89,11 +95,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "enter":
-			if m.turnInFlight {
-				return m, nil
-			}
 			input := strings.TrimSpace(m.textInput.Value())
-			if input == "" {
+			if m.pendingPrompt != nil {
+				m.textInput.Reset()
+				return m.resolvePendingPrompt(input)
+			}
+			if m.turnInFlight || input == "" {
 				return m, nil
 			}
 			m.textInput.Reset()
@@ -140,6 +147,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case subtaskDoneMsg:
 		delete(m.subtasks, msg.toolCallID)
 		return m, nil
+
+	case permissionRequestMsg:
+		m.pendingPrompt = &pendingPrompt{kind: "permission", permissionRespond: msg.respond}
+		m.conversation = append(m.conversation, conversationEntry{
+			kind: "assistant",
+			text: fmt.Sprintf("[permission] %s wants to run: %v\nallow once / allow for session / deny? [o/s/d]", msg.toolName, msg.input),
+		})
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -173,6 +188,28 @@ func (m *Model) runTurn() tea.Cmd {
 		})
 		return turnDoneMsg{history: updated, err: err}
 	}
+}
+
+// resolvePendingPrompt answers whatever modal prompt is currently pending
+// (a permission request today; Task 7 adds "model-pick") with the user's
+// just-submitted input line, then clears m.pendingPrompt so "enter" resumes
+// its normal turn-submission behavior.
+func (m *Model) resolvePendingPrompt(input string) (tea.Model, tea.Cmd) {
+	p := m.pendingPrompt
+	m.pendingPrompt = nil
+
+	switch p.kind {
+	case "permission":
+		switch strings.ToLower(input) {
+		case "s":
+			p.permissionRespond <- true
+		case "o", "":
+			p.permissionRespond <- true
+		default:
+			p.permissionRespond <- false
+		}
+	}
+	return m, nil
 }
 
 func (m *Model) View() string {
@@ -246,6 +283,7 @@ func RunTUI(ctx context.Context, loop *agent.Loop, cfg config.Config, buildProvi
 	m := newModel(ctx, loop, cfg, buildProvider)
 	p := tea.NewProgram(m)
 	m.program = p
+	loop.SetPermissionChecker(newTUIPermissionChecker(cfg.Permissions, p))
 	_, err := p.Run()
 	return err
 }
