@@ -103,6 +103,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if strings.HasPrefix(input, "/") {
 				m.textInput.Reset()
+				if m.turnInFlight {
+					m.conversation = append(m.conversation, conversationEntry{kind: "error", text: "cannot change model while a turn is in flight"})
+					return m, nil
+				}
 				return m.handleSlashCommand(input)
 			}
 			if m.turnInFlight || input == "" {
@@ -133,6 +137,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toolStepMsg:
 		if msg.message.Role == llm.RoleTool {
 			m.conversation = append(m.conversation, conversationEntry{kind: "tool", text: msg.message.Content})
+		} else if msg.message.Role == llm.RoleAssistant {
+			for _, call := range msg.message.ToolCalls {
+				if call.Name != "Delegate" {
+					continue
+				}
+				task, ok := call.Args["task"].(string)
+				if !ok {
+					continue
+				}
+				card, ok := m.subtasks[call.ID]
+				if !ok {
+					card = &subtaskCard{toolCallID: call.ID}
+					m.subtasks[call.ID] = card
+				}
+				card.task = task
+			}
 		}
 		return m, nil
 
@@ -152,6 +172,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case subtaskDoneMsg:
 		delete(m.subtasks, msg.toolCallID)
 		return m, nil
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spin, cmd = m.spin.Update(msg)
+		return m, cmd
 
 	case permissionRequestMsg:
 		m.pendingPrompt = &pendingPrompt{kind: "permission", permissionRespond: msg.respond}
@@ -214,6 +239,10 @@ func (m *Model) resolvePendingPrompt(input string) (tea.Model, tea.Cmd) {
 			p.permissionRespond <- permissionResponse{allowed: false, persist: false}
 		}
 	case "model-pick":
+		if m.turnInFlight {
+			m.conversation = append(m.conversation, conversationEntry{kind: "error", text: "cannot change model while a turn is in flight"})
+			return m, nil
+		}
 		chosen := input
 		if n, err := strconv.Atoi(input); err == nil && n >= 1 && n <= len(p.modelPickOptions) {
 			chosen = p.modelPickOptions[n-1]
@@ -305,6 +334,13 @@ func (m *Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, status, body, m.textInput.View())
 }
 
+// renderConversation renders the conversation log, tail-trimmed to fit the
+// panel's available height. lipgloss.Style.Height sets a minimum, not a
+// maximum, so without trimming here the rendered view grows without bound
+// as turns accumulate, and Bubble Tea's renderer eventually scrolls the
+// status bar and subtask panel off the top of the terminal. Keeping only
+// the most recent lines that fit preserves the persistent, stable layout
+// the design calls for; a full scrollback/viewport is out of scope here.
 func (m *Model) renderConversation() string {
 	var b strings.Builder
 	for _, e := range m.conversation {
@@ -317,7 +353,33 @@ func (m *Model) renderConversation() string {
 			b.WriteString(e.text + "\n")
 		}
 	}
-	return b.String()
+	return tailLines(b.String(), m.conversationLineBudget())
+}
+
+// conversationLineBudget returns how many lines of rendered conversation
+// content fit in the panel. The panel's inner content area is
+// Height(m.height - 4) (see View), of which one line is the "conversation"
+// header renderConversation's caller prepends, leaving m.height - 5 for
+// the conversation body itself.
+func (m *Model) conversationLineBudget() int {
+	budget := m.height - 5
+	if budget < 1 {
+		budget = 1
+	}
+	return budget
+}
+
+// tailLines keeps at most the last n lines of s, dropping the oldest ones.
+func tailLines(s string, n int) string {
+	if s == "" {
+		return s
+	}
+	trimmed := strings.TrimSuffix(s, "\n")
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func (m *Model) renderSubtasks() string {
