@@ -254,3 +254,35 @@ func TestListOllamaModels_NonOKStatusErrors(t *testing.T) {
 		t.Fatalf("expected an error for a non-200 response")
 	}
 }
+
+func TestListOllamaModels_TimesOutOnSlowServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]any{{"name": "too-slow"}},
+		})
+	}))
+	defer srv.Close()
+
+	// Shrink the package's listing timeout for the duration of the test so
+	// this doesn't have to wait out the real (much longer) default.
+	orig := listModelsTimeout
+	listModelsTimeout = 10 * time.Millisecond
+	defer func() { listModelsTimeout = orig }()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := ListOllamaModels(srv.URL)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("expected a timeout error from the slow server")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("ListOllamaModels did not return within the bounded test window; it appears to be hanging instead of timing out")
+	}
+}

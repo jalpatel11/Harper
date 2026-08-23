@@ -14,6 +14,15 @@ import (
 // large local models can legitimately take a long time per turn.
 const defaultRequestTimeout = 5 * time.Minute
 
+// listModelsTimeout bounds ListOllamaModels, which lists already-pulled
+// models rather than generating a response. It's called synchronously from
+// UI event loops (e.g. the TUI's Update, which also handles Ctrl+C), so it
+// needs a short bound rather than defaultRequestTimeout's generous one —
+// otherwise a hung or unreachable Ollama server freezes the whole UI with
+// no way to recover short of killing the process. A var, not a const, so
+// tests can shrink it instead of waiting out the real value.
+var listModelsTimeout = 10 * time.Second
+
 type OllamaProvider struct {
 	baseURL string
 	model   string
@@ -140,7 +149,8 @@ func (p *OllamaProvider) Complete(ctx context.Context, messages []Message, tools
 // Ollama server at baseURL — used to offer an interactive picker (e.g. a
 // REPL /model command) instead of requiring the exact name typed blind.
 func ListOllamaModels(baseURL string) ([]string, error) {
-	resp, err := http.Get(baseURL + "/api/tags")
+	client := &http.Client{Timeout: listModelsTimeout}
+	resp, err := client.Get(baseURL + "/api/tags")
 	if err != nil {
 		return nil, fmt.Errorf("call ollama: %w", err)
 	}
