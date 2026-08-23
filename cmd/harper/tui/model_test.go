@@ -174,3 +174,26 @@ func TestModel_Update_SecondTurnHistoryPreservesToolCallFromFirstTurn(t *testing
 		t.Fatalf("expected the second turn's history to build on the first turn's (>= 4 messages: user, assistant+toolcall, tool, user), got %d", len(m.history))
 	}
 }
+
+func TestModel_Update_SubtaskStepMsgAddsAndUpdatesCard(t *testing.T) {
+	loop := agent.NewLoop(&scriptedStubProvider{}, nil, "you are harper")
+	cfg := config.Config{Brain: config.ModelConfig{Provider: "ollama", Model: "m"}}
+	m := newModel(context.Background(), loop, cfg, nil)
+	m.width, m.height = 80, 24
+
+	updated, _ := m.Update(subtaskStepMsg{toolCallID: "call_0", message: llm.Message{Content: "reading file"}})
+	m = updated.(*Model)
+
+	if len(m.subtasks) != 1 {
+		t.Fatalf("expected 1 active subtask card, got %d", len(m.subtasks))
+	}
+	if m.subtasks["call_0"].lastStep != "reading file" {
+		t.Fatalf("unexpected lastStep: %q", m.subtasks["call_0"].lastStep)
+	}
+
+	updated, _ = m.Update(subtaskDoneMsg{toolCallID: "call_0"})
+	m = updated.(*Model)
+	if len(m.subtasks) != 0 {
+		t.Fatalf("expected the card removed once its Delegate call finishes, got %d remaining", len(m.subtasks))
+	}
+}

@@ -123,6 +123,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.conversation = append(m.conversation, conversationEntry{kind: "tool", text: msg.message.Content})
 		}
 		return m, nil
+
+	case subtaskStepMsg:
+		card, ok := m.subtasks[msg.toolCallID]
+		if !ok {
+			card = &subtaskCard{toolCallID: msg.toolCallID}
+			m.subtasks[msg.toolCallID] = card
+		}
+		if msg.message.Content != "" {
+			card.lastStep = msg.message.Content
+		} else if len(msg.message.ToolCalls) > 0 {
+			card.lastStep = msg.message.ToolCalls[0].Name
+		}
+		return m, nil
+
+	case subtaskDoneMsg:
+		delete(m.subtasks, msg.toolCallID)
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -136,9 +153,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) runTurn() tea.Cmd {
 	history := m.history
 	return func() tea.Msg {
-		updated, err := m.loop.Run(m.ctx, history, 30, func(step llm.Message) {
+		ctx := agent.WithSubtaskReporter(m.ctx, func(toolCallID string, step llm.Message) {
+			if m.program != nil {
+				m.program.Send(subtaskStepMsg{toolCallID: toolCallID, message: step})
+			}
+		})
+		updated, err := m.loop.Run(ctx, history, 30, func(step llm.Message) {
 			if m.program != nil {
 				m.program.Send(toolStepMsg{message: step})
+				if step.Role == llm.RoleTool {
+					// This top-level tool result is the Delegate call
+					// finishing (Delegate is the brain's only tool in
+					// orchestrator mode) — clear its card. In simple mode
+					// there is no Delegate/subtask panel content to clear,
+					// so this is a harmless no-op delete-of-nothing.
+					m.program.Send(subtaskDoneMsg{toolCallID: step.ToolCallID})
+				}
 			}
 		})
 		return turnDoneMsg{history: updated, err: err}

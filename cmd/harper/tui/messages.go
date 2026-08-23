@@ -14,3 +14,16 @@ type turnDoneMsg struct {
 type toolStepMsg struct {
 	message llm.Message
 }
+
+// subtaskStepMsg is one step of a specific Delegate call's subtask loop,
+// tagged with that call's tool call ID so concurrent Delegate calls render
+// as separate cards.
+type subtaskStepMsg struct {
+	toolCallID string
+	message    llm.Message
+}
+
+// subtaskDoneMsg removes a subtask's card once its Delegate call returns.
+type subtaskDoneMsg struct {
+	toolCallID string
+}
