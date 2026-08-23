@@ -2,11 +2,65 @@ package agent
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"harper/internal/llm"
 	"harper/internal/tools"
 )
+
+// constantProvider always returns the same final answer with no tool
+// calls, so Loop.Run finishes after a single Complete call. Unlike
+// scriptedProvider (loop_test.go), it holds no mutable per-call state, so
+// it's safe for two DelegateTool.Execute calls to share it concurrently —
+// exactly how Loop.Run's tool-call fan-out uses a single shared
+// DelegateTool/subtaskLoop in production (see main.go's buildBrainLoop).
+type constantProvider struct {
+	message llm.Message
+}
+
+func (p *constantProvider) Complete(ctx context.Context, messages []llm.Message, toolDefs []llm.ToolDef) (llm.Response, error) {
+	return llm.Response{Message: p.message}, nil
+}
+
+// TestDelegateTool_Execute_ConcurrentCallsRouteStepsToTheirOwnToolCallID
+// covers two Delegate calls sharing one DelegateTool (the real fan-out
+// shape from Loop.Run) running concurrently, each carrying its own
+// reporter-context toolCallID — the reporter closure in Execute captures
+// callID from a local variable per call, so steps from one call must never
+// be attributed to the other's ID. Run with -race to also confirm the
+// shared subtaskLoop tolerates concurrent Run calls.
+func TestDelegateTool_Execute_ConcurrentCallsRouteStepsToTheirOwnToolCallID(t *testing.T) {
+	provider := &constantProvider{message: llm.Message{Role: llm.RoleAssistant, Content: "done"}}
+	delegate := NewDelegateTool(provider, nil, "you are a subtask agent", 5)
+
+	var mu sync.Mutex
+	reported := map[string]int{}
+	reporter := SubtaskReporter(func(toolCallID string, m llm.Message) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported[toolCallID]++
+	})
+
+	run := func(callID, task string) {
+		ctx := WithToolCallID(WithSubtaskReporter(context.Background(), reporter), callID)
+		if _, err := delegate.Execute(ctx, map[string]any{"task": task}); err != nil {
+			t.Errorf("Execute(%s): %v", callID, err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); run("call_a", "task a") }()
+	go func() { defer wg.Done(); run("call_b", "task b") }()
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if reported["call_a"] == 0 || reported["call_b"] == 0 {
+		t.Fatalf("expected steps reported under both call IDs with no cross-talk, got: %+v", reported)
+	}
+}
 
 func TestDelegateTool_RunsSubtaskLoopAndReturnsFinalAnswer(t *testing.T) {
 	subtaskProvider := &scriptedProvider{

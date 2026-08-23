@@ -14,6 +14,8 @@ type SubtaskReporter func(toolCallID string, message llm.Message)
 
 type subtaskReporterKey struct{}
 
+// WithSubtaskReporter attaches r to ctx so DelegateTool.Execute can report
+// subtask steps to it without changing the Tool interface.
 func WithSubtaskReporter(ctx context.Context, r SubtaskReporter) context.Context {
 	return context.WithValue(ctx, subtaskReporterKey{}, r)
 }
@@ -25,6 +27,9 @@ func subtaskReporterFromContext(ctx context.Context) (SubtaskReporter, bool) {
 
 type toolCallIDKey struct{}
 
+// WithToolCallID attaches the ID of the Delegate tool call currently
+// executing to ctx, so its onStep can tag reported steps with the call
+// they belong to (see SubtaskReporter).
 func WithToolCallID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, toolCallIDKey{}, id)
 }

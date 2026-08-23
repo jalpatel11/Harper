@@ -57,6 +57,7 @@ type Model struct {
 	conversation []conversationEntry // display log — rendering only, never sent to a provider
 	history      []llm.Message       // the real, authoritative message history sent to loop.Run, carried forward exactly as loop.Run returns it — the same pattern RunREPL uses (`history = updated`), so tool_use/tool_result pairs from Delegate calls are never dropped
 	subtasks     map[string]*subtaskCard
+	subtaskOrder []string // insertion order of subtasks' keys — map iteration order is randomized, so renderSubtasks walks this instead to keep cards from reordering on screen
 	turnInFlight bool
 
 	pendingPrompt *pendingPrompt
@@ -92,8 +93,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case tea.KeyMsg:
+		if m.pendingPrompt != nil && m.pendingPrompt.kind == "permission" {
+			return m.handlePermissionKey(msg)
+		}
 		switch msg.String() {
-		case "ctrl+c":
+		case "ctrl+c", "ctrl+d":
 			return m, tea.Quit
 		case "enter":
 			input := strings.TrimSpace(m.textInput.Value())
@@ -101,15 +105,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textInput.Reset()
 				return m.resolvePendingPrompt(input)
 			}
+			if input == "/exit" {
+				m.textInput.Reset()
+				return m, tea.Quit
+			}
 			if strings.HasPrefix(input, "/") {
 				m.textInput.Reset()
 				if m.turnInFlight {
-					m.conversation = append(m.conversation, conversationEntry{kind: "error", text: "cannot change model while a turn is in flight"})
+					m.conversation = append(m.conversation, conversationEntry{kind: "error", text: "cannot run a command while a turn is in flight"})
 					return m, nil
 				}
 				return m.handleSlashCommand(input)
 			}
-			if m.turnInFlight || input == "" {
+			if input == "" {
+				return m, nil
+			}
+			if m.turnInFlight {
+				m.conversation = append(m.conversation, conversationEntry{kind: "error", text: "a turn is already in progress; please wait"})
 				return m, nil
 			}
 			m.textInput.Reset()
@@ -150,6 +162,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !ok {
 					card = &subtaskCard{toolCallID: call.ID}
 					m.subtasks[call.ID] = card
+					m.subtaskOrder = append(m.subtaskOrder, call.ID)
 				}
 				card.task = task
 			}
@@ -161,6 +174,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !ok {
 			card = &subtaskCard{toolCallID: msg.toolCallID}
 			m.subtasks[msg.toolCallID] = card
+			m.subtaskOrder = append(m.subtaskOrder, msg.toolCallID)
 		}
 		if msg.message.Content != "" {
 			card.lastStep = msg.message.Content
@@ -171,6 +185,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case subtaskDoneMsg:
 		delete(m.subtasks, msg.toolCallID)
+		for i, id := range m.subtaskOrder {
+			if id == msg.toolCallID {
+				m.subtaskOrder = append(m.subtaskOrder[:i], m.subtaskOrder[i+1:]...)
+				break
+			}
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -179,6 +199,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case permissionRequestMsg:
+		// This can never clobber a pending "model-pick" prompt: model-pick
+		// is only ever set while turnInFlight is false, and a
+		// permissionRequestMsg only ever arrives from the brain loop's own
+		// tool checker mid-Run, which requires turnInFlight to be true — so
+		// the two windows can't overlap under this Model's control flow. No
+		// queuing is needed for a case that can't reach this point.
 		m.pendingPrompt = &pendingPrompt{kind: "permission", permissionRespond: msg.respond}
 		m.conversation = append(m.conversation, conversationEntry{
 			kind: "assistant",
@@ -218,6 +244,24 @@ func (m *Model) runTurn() tea.Cmd {
 		})
 		return turnDoneMsg{history: updated, err: err}
 	}
+}
+
+// handlePermissionKey resolves a pending permission prompt directly from a
+// single keypress — o(nce)/s(ession)/d(eny), or plain Enter as the o
+// default — rather than requiring the user to type a letter into textInput
+// and press Enter, matching the plain REPL's prompt (cmd/harper/repl.go).
+// Any other key is ignored and never reaches textInput, so stray keystrokes
+// can't leak into the next real turn's input.
+func (m *Model) handlePermissionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch strings.ToLower(msg.String()) {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "enter":
+		return m.resolvePendingPrompt("")
+	case "o", "s", "d":
+		return m.resolvePendingPrompt(strings.ToLower(msg.String()))
+	}
+	return m, nil
 }
 
 // resolvePendingPrompt answers whatever modal prompt is currently pending
@@ -349,6 +393,8 @@ func (m *Model) renderConversation() string {
 			b.WriteString(userInputStyle.Render("> "+e.text) + "\n")
 		case "error":
 			b.WriteString(errorStyle.Render(e.text) + "\n")
+		case "tool":
+			b.WriteString(mutedStyle.Render("[tool] "+e.text) + "\n")
 		default:
 			b.WriteString(e.text + "\n")
 		}
@@ -390,7 +436,14 @@ func (m *Model) renderSubtasks() string {
 		return mutedStyle.Render("(none in flight)")
 	}
 	var b strings.Builder
-	for _, card := range m.subtasks {
+	// Walk subtaskOrder rather than ranging m.subtasks directly — map
+	// iteration order is randomized, which would make cards reorder on
+	// screen from one render to the next.
+	for _, id := range m.subtaskOrder {
+		card, ok := m.subtasks[id]
+		if !ok {
+			continue
+		}
 		b.WriteString(fmt.Sprintf("%s %s\n   %s\n", m.spin.View(), card.task, card.lastStep))
 	}
 	return b.String()
