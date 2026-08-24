@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"harper/internal/config"
+	"harper/internal/llm"
+	"harper/internal/session"
 )
 
 func TestParseRunFlags_AppliesDefaults(t *testing.T) {
@@ -203,5 +207,44 @@ func TestRunModeStartup_FailsFastWhenBrainToolAsks(t *testing.T) {
 	cfg := config.PermissionsConfig{Overrides: map[string]string{"Delegate": "ask"}}
 	if err := validateNoAskForRunMode(cfg, []string{"Delegate"}); err == nil {
 		t.Fatalf("expected run mode startup validation to fail when the brain's Delegate tool resolves to ask")
+	}
+}
+
+func TestLoadResumedSession_NoSavedSession(t *testing.T) {
+	session.SetSessionsRoot(t.TempDir())
+
+	history, notice, cfg := loadResumedSession(config.Config{Brain: config.ModelConfig{Model: "configured-model"}})
+	if history != nil {
+		t.Fatalf("expected nil history when nothing was saved, got %v", history)
+	}
+	if notice != "no saved session for this directory" {
+		t.Fatalf("unexpected notice: %q", notice)
+	}
+	if cfg.Brain.Model != "configured-model" {
+		t.Fatalf("expected cfg unchanged when nothing was saved, got %q", cfg.Brain.Model)
+	}
+}
+
+func TestLoadResumedSession_FoundOverlaysBrainAndMode(t *testing.T) {
+	session.SetSessionsRoot(t.TempDir())
+	saved := session.Session{
+		History: []llm.Message{{Role: llm.RoleUser, Content: "hi"}, {Role: llm.RoleAssistant, Content: "hello"}},
+		Brain:   config.ModelConfig{Provider: "ollama", Model: "saved-model"},
+		Mode:    "simple",
+		SavedAt: time.Now(),
+	}
+	if err := session.Save(".", saved); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	history, notice, cfg := loadResumedSession(config.Config{Brain: config.ModelConfig{Model: "configured-model"}})
+	if len(history) != 2 {
+		t.Fatalf("expected 2 resumed messages, got %d", len(history))
+	}
+	if cfg.Brain.Model != "saved-model" || cfg.Mode != "simple" {
+		t.Fatalf("expected cfg overlaid with the saved session, got brain=%q mode=%q", cfg.Brain.Model, cfg.Mode)
+	}
+	if !strings.Contains(notice, "resumed session from") || !strings.Contains(notice, "2 message") {
+		t.Fatalf("unexpected notice: %q", notice)
 	}
 }

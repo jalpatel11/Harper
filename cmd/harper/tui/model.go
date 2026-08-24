@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -14,6 +15,7 @@ import (
 	"harper/internal/agent"
 	"harper/internal/config"
 	"harper/internal/llm"
+	"harper/internal/session"
 )
 
 // conversationEntry is one rendered line in the conversation panel: a user
@@ -133,17 +135,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case turnDoneMsg:
 		m.turnInFlight = false
+		// Keep the returned history even on error, the same way RunREPL
+		// does (`history = updated` on both its success and error paths) —
+		// this is what preserves Delegate's tool_use/tool_result message
+		// pairs, and what makes an errored turn's progress resumable.
+		m.history = msg.history
 		if msg.err != nil {
 			m.conversation = append(m.conversation, conversationEntry{kind: "error", text: fmt.Sprintf("error: %v", msg.err)})
+			m.saveSession()
 			return m, nil
 		}
-		// Carry the exact returned history forward, the same way RunREPL
-		// does (`history = updated`) — this is what preserves Delegate's
-		// tool_use/tool_result message pairs for the next turn. Rebuilding
-		// history from the display log instead would silently drop them.
-		m.history = msg.history
 		final := msg.history[len(msg.history)-1]
 		m.conversation = append(m.conversation, conversationEntry{kind: "assistant", text: final.Content})
+		m.saveSession()
 		return m, nil
 
 	case toolStepMsg:
@@ -469,11 +473,68 @@ func permissionsLabel(p config.PermissionsConfig) string {
 // RunTUI is the TUI's entry point, called from main.go in place of RunREPL
 // when both stdin and stdout are real terminals. buildProvider is passed
 // in rather than imported, since cmd/harper/tui cannot import package main.
-func RunTUI(ctx context.Context, loop *agent.Loop, cfg config.Config, buildProvider func(config.ModelConfig, config.Config) (llm.Provider, error)) error {
+// initialHistory and resumeNotice come from a resumed session (see
+// cmd/harper/main.go's --continue handling); both are the zero value when
+// there's nothing to resume, in which case seedFromSession is a no-op.
+func RunTUI(ctx context.Context, loop *agent.Loop, cfg config.Config, buildProvider func(config.ModelConfig, config.Config) (llm.Provider, error), initialHistory []llm.Message, resumeNotice string) error {
 	m := newModel(ctx, loop, cfg, buildProvider)
+	m.seedFromSession(initialHistory, resumeNotice)
 	p := tea.NewProgram(m)
 	m.program = p
 	loop.SetPermissionChecker(newTUIPermissionChecker(cfg.Permissions, p))
 	_, err := p.Run()
 	return err
+}
+
+// seedFromSession populates the model's history and conversation display
+// log from a resumed session, and appends resumeNotice (if non-empty) as
+// the last visible line, so the user sees it above the input prompt.
+// Called once, from RunTUI, before the program starts running. A nil
+// initialHistory and empty resumeNotice (nothing to resume) leave the
+// model exactly as newModel constructed it.
+func (m *Model) seedFromSession(initialHistory []llm.Message, resumeNotice string) {
+	m.history = initialHistory
+	m.conversation = conversationEntriesFromHistory(initialHistory)
+	if resumeNotice != "" {
+		m.conversation = append(m.conversation, conversationEntry{kind: "assistant", text: resumeNotice})
+	}
+}
+
+// conversationEntriesFromHistory reconstructs display log entries from a
+// resumed session's raw message history, mirroring what the live turn path
+// itself ever shows: user text, tool results, and assistant text — but
+// never an assistant message that only carries ToolCalls with no Content
+// (toolStepMsg's handler never renders those as a conversation line
+// either, only as subtask-card updates), and never the system prompt.
+func conversationEntriesFromHistory(history []llm.Message) []conversationEntry {
+	var entries []conversationEntry
+	for _, msg := range history {
+		switch msg.Role {
+		case llm.RoleUser:
+			entries = append(entries, conversationEntry{kind: "user", text: msg.Content})
+		case llm.RoleAssistant:
+			if msg.Content != "" {
+				entries = append(entries, conversationEntry{kind: "assistant", text: msg.Content})
+			}
+		case llm.RoleTool:
+			entries = append(entries, conversationEntry{kind: "tool", text: msg.Content})
+		}
+	}
+	return entries
+}
+
+// saveSession persists the current history/model/mode after a turn
+// completes, so a later --continue can resume from here. Save errors are
+// shown as a conversation entry rather than failing the turn — losing the
+// ability to resume later must never block the user from continuing to
+// chat now.
+func (m *Model) saveSession() {
+	if err := session.Save(".", session.Session{
+		History: m.history,
+		Brain:   m.cfg.Brain,
+		Mode:    m.cfg.Mode,
+		SavedAt: time.Now(),
+	}); err != nil {
+		m.conversation = append(m.conversation, conversationEntry{kind: "error", text: fmt.Sprintf("warning: could not save session: %v", err)})
+	}
 }

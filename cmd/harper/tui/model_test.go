@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,8 +16,25 @@ import (
 	"harper/internal/agent"
 	"harper/internal/config"
 	"harper/internal/llm"
+	"harper/internal/session"
 	"harper/internal/tools"
 )
+
+// TestMain isolates every test in this package from a real user's
+// ~/.harper/sessions directory — Update's turnDoneMsg handling now calls
+// session.Save unconditionally (see saveSession), so any test that drives
+// a turn through Update would otherwise write there.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "harper-tui-session-test-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	session.SetSessionsRoot(dir)
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 type stubProvider struct{}
 
@@ -742,5 +761,121 @@ func TestModel_Update_ToolStepMsgWithDelegateCallPopulatesSubtaskCardTask(t *tes
 	}
 	if card.task != "do the thing" {
 		t.Fatalf("expected card.task to be %q, got %q", "do the thing", card.task)
+	}
+}
+
+func TestConversationEntriesFromHistory_ReconstructsDisplayableEntries(t *testing.T) {
+	history := []llm.Message{
+		{Role: llm.RoleSystem, Content: "you are harper"},
+		{Role: llm.RoleUser, Content: "do the thing"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_0", Name: "Delegate"}}},
+		{Role: llm.RoleTool, Content: "looked it up", ToolCallID: "call_0"},
+		{Role: llm.RoleAssistant, Content: "here's the answer"},
+	}
+
+	entries := conversationEntriesFromHistory(history)
+
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries (system and empty-content assistant skipped), got %d: %+v", len(entries), entries)
+	}
+	if entries[0].kind != "user" || entries[0].text != "do the thing" {
+		t.Fatalf("unexpected entry[0]: %+v", entries[0])
+	}
+	if entries[1].kind != "tool" || entries[1].text != "looked it up" {
+		t.Fatalf("unexpected entry[1]: %+v", entries[1])
+	}
+	if entries[2].kind != "assistant" || entries[2].text != "here's the answer" {
+		t.Fatalf("unexpected entry[2]: %+v", entries[2])
+	}
+}
+
+func TestModel_SeedFromSession_PopulatesHistoryConversationAndNotice(t *testing.T) {
+	loop := agent.NewLoop(&scriptedStubProvider{}, nil, "you are harper")
+	cfg := config.Config{Brain: config.ModelConfig{Provider: "ollama", Model: "m"}}
+	m := newModel(context.Background(), loop, cfg, nil)
+
+	history := []llm.Message{
+		{Role: llm.RoleUser, Content: "earlier question"},
+		{Role: llm.RoleAssistant, Content: "earlier answer"},
+	}
+	m.seedFromSession(history, "resumed session from earlier, 2 messages")
+
+	if len(m.history) != 2 {
+		t.Fatalf("expected m.history seeded with 2 messages, got %d", len(m.history))
+	}
+	found := false
+	for _, e := range m.conversation {
+		if strings.Contains(e.text, "resumed session from earlier") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected the resume notice appended to the conversation, got: %+v", m.conversation)
+	}
+	if !strings.Contains(m.conversation[0].text, "earlier question") {
+		t.Fatalf("expected the resumed history reconstructed into the conversation, got: %+v", m.conversation)
+	}
+}
+
+func TestModel_SeedFromSession_NoNoticeWhenEmpty(t *testing.T) {
+	loop := agent.NewLoop(&scriptedStubProvider{}, nil, "you are harper")
+	cfg := config.Config{Brain: config.ModelConfig{Provider: "ollama", Model: "m"}}
+	m := newModel(context.Background(), loop, cfg, nil)
+
+	m.seedFromSession(nil, "")
+
+	if len(m.conversation) != 0 {
+		t.Fatalf("expected no conversation entries when there's nothing to seed and no notice, got: %+v", m.conversation)
+	}
+}
+
+func TestModel_Update_TurnDoneMsg_SavesSession(t *testing.T) {
+	session.SetSessionsRoot(t.TempDir())
+
+	loop := agent.NewLoop(&scriptedStubProvider{}, nil, "you are harper")
+	cfg := config.Config{Brain: config.ModelConfig{Provider: "ollama", Model: "saved-model"}, Mode: "simple"}
+	m := newModel(context.Background(), loop, cfg, nil)
+	m.width, m.height = 80, 24
+
+	history := []llm.Message{
+		{Role: llm.RoleUser, Content: "hi"},
+		{Role: llm.RoleAssistant, Content: "hello back"},
+	}
+	updated, _ := m.Update(turnDoneMsg{history: history, err: nil})
+	m = updated.(*Model)
+
+	got, found, err := session.Load(".")
+	if err != nil || !found {
+		t.Fatalf("expected a saved session after turnDoneMsg, found=%v err=%v", found, err)
+	}
+	if len(got.History) != 2 || got.Brain.Model != "saved-model" || got.Mode != "simple" {
+		t.Fatalf("unexpected saved session: %+v", got)
+	}
+}
+
+func TestModel_Update_TurnDoneMsg_SavesSessionEvenOnError(t *testing.T) {
+	// Regression test: before this task, an errored turn left m.history
+	// untouched (unlike RunREPL, which always keeps the returned history —
+	// see repl.go's `history = updated` on the error path too). That
+	// inconsistency would mean an errored turn's tool_use/tool_result pairs
+	// are silently lost from what gets persisted, breaking the "one shared
+	// format" guarantee between the two front-ends.
+	session.SetSessionsRoot(t.TempDir())
+
+	loop := agent.NewLoop(&scriptedStubProvider{}, nil, "you are harper")
+	cfg := config.Config{Brain: config.ModelConfig{Provider: "ollama", Model: "m"}}
+	m := newModel(context.Background(), loop, cfg, nil)
+	m.width, m.height = 80, 24
+
+	history := []llm.Message{{Role: llm.RoleUser, Content: "hi"}}
+	updated, _ := m.Update(turnDoneMsg{history: history, err: fmt.Errorf("boom")})
+	m = updated.(*Model)
+
+	if len(m.history) != 1 {
+		t.Fatalf("expected m.history updated even when the turn errored, got %d messages", len(m.history))
+	}
+	_, found, err := session.Load(".")
+	if err != nil || !found {
+		t.Fatalf("expected a saved session even after an errored turn, found=%v err=%v", found, err)
 	}
 }

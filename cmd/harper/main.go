@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"harper/cmd/harper/tui"
 	"harper/internal/agent"
@@ -13,6 +14,7 @@ import (
 	"harper/internal/llm"
 	"harper/internal/logging"
 	"harper/internal/mcp"
+	"harper/internal/session"
 	"harper/internal/tools"
 	"harper/internal/version"
 )
@@ -48,6 +50,28 @@ func applyModeOverride(cfg config.Config, mode string) config.Config {
 		cfg.Mode = mode
 	}
 	return cfg
+}
+
+// loadResumedSession loads the saved session for the current directory (set
+// via --continue) and overlays its Brain/Mode onto cfg. Called before any
+// --model/--mode flag is applied, so an explicit flag this run still wins
+// over what the session had saved. A missing session is expected and
+// silent; a session that exists but couldn't be read or parsed is treated
+// the same way — never blocking startup — but with a warning naming the
+// problem, since that's not the ordinary "nothing to resume" case.
+func loadResumedSession(cfg config.Config) ([]llm.Message, string, config.Config) {
+	sess, found, err := session.Load(".")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load saved session: %v\n", err)
+		return nil, "", cfg
+	}
+	if !found {
+		return nil, "no saved session for this directory", cfg
+	}
+	cfg.Brain = sess.Brain
+	cfg.Mode = sess.Mode
+	notice := fmt.Sprintf("resumed session from %s, %d message(s)", sess.SavedAt.Format(time.RFC3339), len(sess.History))
+	return sess.History, notice, cfg
 }
 
 // resolveSandboxMode applies --sandbox > config's sandbox_mode > "local".
@@ -285,11 +309,20 @@ func main() {
 	model := replFlags.String("model", "", "model name for both brain and subtask roles (overrides config)")
 	effort := replFlags.String("effort", "", "reasoning effort for both roles: low, medium, or high (overrides config; meaning is provider-specific)")
 	mode := replFlags.String("mode", "", "agent mode: \"\" (default, orchestrator) or \"simple\" (flat single-loop agent, no subtask model)")
+	resume := replFlags.Bool("continue", false, "resume the previous session for this directory, if one exists")
 	if err := replFlags.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
 	}
 
-	cfg := applyModeOverride(applyModelOverrides(loadConfig(*configPath), *model, *effort), *mode)
+	cfg := loadConfig(*configPath)
+
+	var initialHistory []llm.Message
+	resumeNotice := ""
+	if *resume {
+		initialHistory, resumeNotice, cfg = loadResumedSession(cfg)
+	}
+
+	cfg = applyModeOverride(applyModelOverrides(cfg, *model, *effort), *mode)
 	exec, cleanup, err := buildExecutor(ctx, cfg.SandboxMode, cfg, ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -304,7 +337,7 @@ func main() {
 	}
 
 	if isInteractiveTerminal() {
-		if err := tui.RunTUI(ctx, loop, cfg, buildProvider); err != nil {
+		if err := tui.RunTUI(ctx, loop, cfg, buildProvider, initialHistory, resumeNotice); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
