@@ -7,17 +7,25 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"harper/internal/agent"
 	"harper/internal/config"
 	"harper/internal/llm"
+	"harper/internal/session"
 )
 
-func RunREPL(ctx context.Context, loop *agent.Loop, in io.Reader, out io.Writer, cfg config.Config) error {
+// RunREPL runs harper's plain-text interactive REPL. initialHistory and
+// resumeNotice come from a resumed session (see main.go's --continue
+// handling); both are the zero value when there's nothing to resume.
+func RunREPL(ctx context.Context, loop *agent.Loop, in io.Reader, out io.Writer, cfg config.Config, initialHistory []llm.Message, resumeNotice string) error {
 	scanner := bufio.NewScanner(in)
 	loop.SetPermissionChecker(newInteractivePermissionChecker(cfg.Permissions, scanner, out))
 
-	var history []llm.Message
+	history := initialHistory
+	if resumeNotice != "" {
+		fmt.Fprintln(out, resumeNotice)
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -39,12 +47,14 @@ func RunREPL(ctx context.Context, loop *agent.Loop, in io.Reader, out io.Writer,
 				fmt.Fprintf(out, "[tool result for %s]: %s\n", m.ToolCallID, m.Content)
 			}
 		})
+		history = updated
+		if saveErr := session.Save(".", session.Session{History: history, Brain: cfg.Brain, Mode: cfg.Mode, SavedAt: time.Now()}); saveErr != nil {
+			fmt.Fprintf(out, "warning: could not save session: %v\n", saveErr)
+		}
 		if err != nil {
 			fmt.Fprintf(out, "error: %v\n", err)
-			history = updated
 			continue
 		}
-		history = updated
 
 		final := history[len(history)-1]
 		fmt.Fprintf(out, "> %s\n", final.Content)

@@ -344,7 +344,7 @@ func main() {
 		return
 	}
 
-	if err := RunREPL(ctx, loop, os.Stdin, os.Stdout, cfg); err != nil {
+	if err := RunREPL(ctx, loop, os.Stdin, os.Stdout, cfg, initialHistory, resumeNotice); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

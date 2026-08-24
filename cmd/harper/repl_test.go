@@ -4,16 +4,31 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"harper/internal/agent"
 	"harper/internal/config"
 	"harper/internal/llm"
+	"harper/internal/session"
 	"harper/internal/tools"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "harper-repl-session-test-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	session.SetSessionsRoot(dir)
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 type replStubProvider struct {
 	responses []llm.Response
@@ -37,7 +52,7 @@ func TestRunREPL_EchoesFinalAnswerAndExitsOnEOF(t *testing.T) {
 	in := strings.NewReader("hello\n")
 	var out bytes.Buffer
 
-	if err := RunREPL(context.Background(), loop, in, &out, config.Config{}); err != nil {
+	if err := RunREPL(context.Background(), loop, in, &out, config.Config{}, nil, ""); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if !strings.Contains(out.String(), "hi there") {
@@ -60,7 +75,7 @@ func TestRunREPL_PrintsToolActivity(t *testing.T) {
 	in := strings.NewReader("read f.txt\n")
 	var out bytes.Buffer
 
-	if err := RunREPL(context.Background(), loop, in, &out, config.Config{}); err != nil {
+	if err := RunREPL(context.Background(), loop, in, &out, config.Config{}, nil, ""); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if !strings.Contains(out.String(), "file contents") {
@@ -90,7 +105,7 @@ func TestRunREPL_PermissionPromptDoesNotCorruptNextLineOfInput(t *testing.T) {
 	var out bytes.Buffer
 
 	cfg := config.Config{Permissions: config.PermissionsConfig{Default: "ask"}}
-	if err := RunREPL(context.Background(), loop, in, &out, cfg); err != nil {
+	if err := RunREPL(context.Background(), loop, in, &out, cfg, nil, ""); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if !strings.Contains(out.String(), "second turn answer") {
@@ -124,7 +139,7 @@ func TestRunREPL_ModelCommandWithArgSwitchesProviderWithoutPrompting(t *testing.
 	in := strings.NewReader("/model some-new-model\nhello\n")
 	var out bytes.Buffer
 
-	if err := RunREPL(context.Background(), loop, in, &out, cfg); err != nil {
+	if err := RunREPL(context.Background(), loop, in, &out, cfg, nil, ""); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if capturedModel != "some-new-model" {
@@ -165,7 +180,7 @@ func TestRunREPL_ModelCommandListsAndPicksOllamaModelByNumber(t *testing.T) {
 	in := strings.NewReader("/model\n2\nhello\n")
 	var out bytes.Buffer
 
-	if err := RunREPL(context.Background(), loop, in, &out, cfg); err != nil {
+	if err := RunREPL(context.Background(), loop, in, &out, cfg, nil, ""); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if capturedModel != "model-b" {
@@ -184,7 +199,7 @@ func TestRunREPL_ModelCommandNonOllamaProviderPromptsWithoutListing(t *testing.T
 	in := strings.NewReader("/model\nclaude-haiku-4-5-20251001\n")
 	var out bytes.Buffer
 
-	if err := RunREPL(context.Background(), loop, in, &out, cfg); err != nil {
+	if err := RunREPL(context.Background(), loop, in, &out, cfg, nil, ""); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if strings.Contains(out.String(), "Available Ollama models") {
@@ -203,7 +218,7 @@ func TestRunREPL_UnknownCommandPrintsMessageInsteadOfErroring(t *testing.T) {
 	in := strings.NewReader("/nonsense\nhello\n")
 	var out bytes.Buffer
 
-	if err := RunREPL(context.Background(), loop, in, &out, config.Config{}); err != nil {
+	if err := RunREPL(context.Background(), loop, in, &out, config.Config{}, nil, ""); err != nil {
 		t.Fatalf("RunREPL: %v", err)
 	}
 	if !strings.Contains(out.String(), "unknown command") {
