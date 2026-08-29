@@ -63,15 +63,27 @@ func loadResumedSession(cfg config.Config) ([]llm.Message, string, config.Config
 	sess, found, err := session.Load(".")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not load saved session: %v\n", err)
-		return nil, "", cfg
+		return nil, "could not load the saved session; starting fresh", cfg
 	}
 	if !found {
 		return nil, "no saved session for this directory", cfg
 	}
 	cfg.Brain = sess.Brain
 	cfg.Mode = sess.Mode
-	notice := fmt.Sprintf("resumed session from %s, %d message(s)", sess.SavedAt.Format(time.RFC3339), len(sess.History))
-	return sess.History, notice, cfg
+	// Loop.Run only prepends the system prompt when history[0] isn't
+	// already RoleSystem, and a saved session's history always starts with
+	// whatever prompt was active when it was saved. Strip it here so
+	// buildBrainLoop's current, mode-correct prompt (which may differ if
+	// --mode was passed this run, or if the prompt text itself changed
+	// since the session was saved) is the one Loop.Run actually prepends —
+	// otherwise a resumed session can carry a stale or mode-mismatched
+	// prompt forever.
+	history := sess.History
+	if len(history) > 0 && history[0].Role == llm.RoleSystem {
+		history = history[1:]
+	}
+	notice := fmt.Sprintf("resumed session from %s, %d message(s)", sess.SavedAt.Format(time.RFC3339), len(history))
+	return history, notice, cfg
 }
 
 // resolveSandboxMode applies --sandbox > config's sandbox_mode > "local".

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -246,5 +248,59 @@ func TestLoadResumedSession_FoundOverlaysBrainAndMode(t *testing.T) {
 	}
 	if !strings.Contains(notice, "resumed session from") || !strings.Contains(notice, "2 message") {
 		t.Fatalf("unexpected notice: %q", notice)
+	}
+}
+
+func TestLoadResumedSession_StripsLeadingSystemMessage(t *testing.T) {
+	session.SetSessionsRoot(t.TempDir())
+	saved := session.Session{
+		History: []llm.Message{
+			{Role: llm.RoleSystem, Content: "you are harper, orchestrator mode"},
+			{Role: llm.RoleUser, Content: "hi"},
+			{Role: llm.RoleAssistant, Content: "hello"},
+		},
+		Brain: config.ModelConfig{Provider: "ollama", Model: "saved-model"},
+		Mode:  "simple",
+	}
+	if err := session.Save(".", saved); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	history, notice, _ := loadResumedSession(config.Config{})
+	if len(history) != 2 {
+		t.Fatalf("expected the leading system message stripped, leaving 2 messages, got %d: %+v", len(history), history)
+	}
+	if history[0].Role != llm.RoleUser {
+		t.Fatalf("expected the first remaining message to be the user's, got role %q", history[0].Role)
+	}
+	if !strings.Contains(notice, "2 message") {
+		t.Fatalf("expected the notice's message count to exclude the stripped system message, got: %q", notice)
+	}
+}
+
+func TestLoadResumedSession_LoadErrorReturnsNonEmptyNotice(t *testing.T) {
+	dir := t.TempDir()
+	session.SetSessionsRoot(dir)
+	if err := session.Save(".", session.Session{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("expected exactly one session file, got entries=%v err=%v", entries, err)
+	}
+	corruptPath := filepath.Join(dir, entries[0].Name())
+	if err := os.WriteFile(corruptPath, []byte("not valid json{{{"), 0o644); err != nil {
+		t.Fatalf("corrupt the file: %v", err)
+	}
+
+	history, notice, cfg := loadResumedSession(config.Config{Brain: config.ModelConfig{Model: "configured-model"}})
+	if history != nil {
+		t.Fatalf("expected nil history on a load error, got %v", history)
+	}
+	if notice == "" {
+		t.Fatalf("expected a non-empty notice on a load error, so both front-ends show something instead of silence")
+	}
+	if cfg.Brain.Model != "configured-model" {
+		t.Fatalf("expected cfg unchanged on a load error, got %q", cfg.Brain.Model)
 	}
 }
