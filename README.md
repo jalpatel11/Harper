@@ -4,7 +4,7 @@ Harper is a terminal-based coding agent. It runs an agent loop where a configura
 
 ## Features
 
-- **Orchestrator/worker agent loop** — the brain's only tool is `Delegate`; it breaks a request into one or more delegated subtasks, and the subtask model does the real work (reading files, running commands, editing code) with its own bounded tool loop.
+- **Orchestrator/worker agent loop** (default) — the brain's only tool is `Delegate`; it breaks a request into one or more delegated subtasks, and the subtask model does the real work (reading files, running commands, editing code) with its own bounded tool loop. `--mode simple` switches to a flat, single-loop agent instead: one model calling the built-in tools directly, no delegation.
 - **Parallel delegation** — when a request naturally splits into independent pieces, the brain can call `Delegate` multiple times in one turn; those subtasks run concurrently instead of one at a time.
 - **Independent brain/subtask models** — configure each role's provider, model, and reasoning effort separately, or override both at once from the command line. Mixing providers across roles is supported.
 - **Five providers** — Ollama, LM Studio, llama.cpp, and vLLM (all local), plus Anthropic (hosted), selected per-role in config. LM Studio, llama.cpp, and vLLM all speak the same OpenAI-compatible chat-completions API, so they share one provider implementation, differing only in default port. Set `ANTHROPIC_API_KEY` in the environment to use Anthropic.
@@ -12,7 +12,8 @@ Harper is a terminal-based coding agent. It runs an agent loop where a configura
 - **Six built-in tools** — `Read`, `Write`, `Edit`, `Grep`, `Glob`, and `Bash` — available to the subtask model.
 - **Two execution modes** — direct execution by default (no sandbox, no startup cost), or an opt-in Docker sandbox for untrusted projects, with network access denied by default and container resource limits.
 - **MCP client support** — connect to external MCP servers and their tools are merged into the subtask model's tool set automatically.
-- **Two interfaces** — an interactive REPL, and a non-interactive `run` mode with structured JSONL session logging, so Harper can be driven by scripts or other tooling.
+- **Three interfaces** — a Bubble Tea TUI (used automatically in a real terminal), a plain-text REPL (the fallback for piped/non-interactive input), and a non-interactive `run` mode with structured JSONL session logging, so Harper can be driven by scripts or other tooling.
+- **Session persistence** — both interactive interfaces save their conversation after every completed turn to `~/.harper/sessions/`, one session per project directory. Start Harper with `--continue` to resume where you left off, model/mode included.
 
 ## Installation
 
@@ -41,7 +42,7 @@ cd harper_v1.2.0_<platform>
 
 Checksums are in `SHA256SUMS.txt` on the same release page.
 
-**Or build from source** (requires Go 1.23+):
+**Or build from source** (requires Go 1.26+):
 
 ```bash
 git clone git@github.com:jalpatel11/Harper.git
@@ -161,17 +162,19 @@ Each tool call resolves to `allow`, `ask`, or `deny`: an exact match in `permiss
 
 - **`allow`** (default) — runs without confirmation.
 - **`deny`** — the tool call is refused; the model sees a `permission denied` result and can adapt.
-- **`ask`** — only honored interactively, in the REPL. On first use of a tool set to `ask`, Harper prompts `allow once / allow for session / deny? [o/s/d]`; `s` is remembered for the rest of that session, so the same tool isn't re-prompted.
+- **`ask`** — only honored interactively, in the TUI or the plain REPL. On first use of a tool set to `ask`, Harper prompts `allow once / allow for session / deny? [o/s/d]`; `s` is remembered for the rest of that session, so the same tool isn't re-prompted.
 
-`ask` has no one to prompt outside the REPL: the subtask model's own tool calls are always resolved statically (`ask` silently denies, no blocking), and `harper run` validates at startup that its own tool (`Delegate`) doesn't resolve to `ask` — it refuses to start with a clear error rather than hang or silently deny mid-task.
+`ask` has no one to prompt outside an interactive front end: the subtask model's own tool calls are always resolved statically (`ask` silently denies, no blocking), and `harper run` validates at startup that its own tool (`Delegate`) doesn't resolve to `ask` — it refuses to start with a clear error rather than hang or silently deny mid-task.
 
 ## Command reference
 
-**Interactive REPL:**
+**Interactive (TUI, or the plain REPL when stdin/stdout aren't a real terminal):**
 
 ```bash
-./harper [--config PATH] [--model NAME] [--effort low|medium|high]
+./harper [--config PATH] [--model NAME] [--effort low|medium|high] [--mode simple] [--continue]
 ```
+
+`--continue` resumes the previous session for the current directory, if one exists — the saved model and mode come back too, unless overridden by `--model`/`--mode` this run.
 
 **Non-interactive run:**
 
@@ -207,4 +210,4 @@ Each package's tests are self-contained and don't require external services — 
 
 ## Status
 
-Not yet implemented: a domain-restricted network allowlist for the Docker sandbox (currently a binary network on/off toggle), session persistence/resume, a rich TUI, and Harper-as-MCP-server.
+Not yet implemented: a domain-restricted network allowlist for the Docker sandbox (currently a binary network on/off toggle), a Claude-Code-style skills system, streaming output, and Harper-as-MCP-server.
